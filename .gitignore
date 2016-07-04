@@ -1,0 +1,10 @@
+
+*~
+
+/assets/
+/build/
+
+/tests/*
+!/tests/*.h
+!/tests/*.cpp
+!/tests/*.bat
