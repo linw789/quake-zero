@@ -3,7 +3,7 @@
 // Remove this after implementing math functions ourselves.
 #include <math.h> 
 
-#define M_PI 3.1415926535897932f
+#define PI32 3.1415926535897932f
 
 inline float Clamp(float min, float max, float x)
 {
@@ -22,7 +22,7 @@ inline float Absf(float x)
 
 inline float DegreeToRadian(float angle)
 {
-    float result = angle / 180.0f * M_PI;
+    float result = angle / 180.0f * PI32;
     return result;
 }
 

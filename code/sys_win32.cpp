@@ -65,7 +65,7 @@ Win32GetExeFileName(Win32State *state)
 }
 
 INTERNAL_LINKAGE void
-CatString(char *src0, size_t src0Count, 
+Win32CatString(char *src0, size_t src0Count, 
           char *src1, size_t src1Count,
           char *dest, size_t destCount)
 {
@@ -117,7 +117,7 @@ INTERNAL_LINKAGE void
 Win32BuildGameFilePath(Win32State *state, char *filename, 
                        char *dest, int destSize)
 {
-    CatString(state->exeFilePath, 
+    Win32CatString(state->exeFilePath, 
               state->onePastLastExeFilePathSlash - state->exeFilePath,
               filename, StringLength(filename),
               dest, destSize);
@@ -490,8 +490,8 @@ WinMain(HINSTANCE instance, HINSTANCE preInstance, LPSTR cmdline, int showCode)
 
     GameMemory gameMemory = {};
 
-    gameMemory.gameMemory = malloc(MegaBytes(64));
-    gameMemory.gameMemorySize = MegaBytes(64);
+    gameMemory.gameMemory = malloc(MEGA_BYTES(64));
+    gameMemory.gameMemorySize = MEGA_BYTES(64);
 
     gameMemory.platformAPI.SysError = Win32SysError;
     gameMemory.platformAPI.SysSetPalette = Win32SetPalette;

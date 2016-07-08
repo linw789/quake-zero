@@ -44,16 +44,6 @@ extern "C" GAME_INIT(GameInit)
 
 extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 {
-    U8 *row = g_renderBuffer.backbuffer;
-    for (int y = 0; y < g_renderBuffer.height; ++y)
-    {
-        for (int x = 0; x < g_renderBuffer.width; ++x)
-        {
-            row[x] = 0;
-        }
-        row += g_renderBuffer.bytesPerRow;
-    }
-
     g_camera.nearZ = 0.1f;
     g_camera.position = {-735.968750f, -1591.96875f, 110.031250f};
     // x right, y forward, x up

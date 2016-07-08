@@ -28,10 +28,10 @@ typedef I32 fixed20; // 20 bits for mantissa
 
 #define ARRAY_COUNT(array) sizeof(array) / sizeof(array[0])
 
-inline U32 KiloBytes(I32 value) { return value * 1024; }
-inline U32 MegaBytes(I32 value) { return KiloBytes(value) * 1024; }
-inline U64 GigaBytes(I32 value) { return (U64)value * 1024 * 1024 * 1024; }
-inline U64 TeraBytes(I32 value) { return GigaBytes(value) * 1024; }
+#define KILO_BYTES(val) ((val) * 1024LL)
+#define MEGA_BYTES(val) (KILO_BYTES(val) * 1024LL)
+#define GIGA_BYTES(val) (MEGA_BYTES(val) * 1024LL)
+#define TERA_BYTES(val) (GIGA_BYTES(val) * 1024LL)
 
 inline fixed20 FloatToFixed20(float v)
 {
@@ -95,74 +95,13 @@ struct GameSoundOutputBuffer
     I16 *samples;
 };
 
-struct GameButtonState
-{
-    I32 halfTransitionCount;
-    bool isLastDown;
-};
-
-struct GameControllerInput
-{
-    float stickX;
-    float stickY;
-
-    union
-    {
-        GameButtonState buttons[12];
-
-        struct
-        {
-            GameButtonState moveUp;
-            GameButtonState moveDown;
-            GameButtonState moveLeft;
-            GameButtonState moveRight;
-
-            GameButtonState actionUp;
-            GameButtonState actionDown;
-            GameButtonState actionLeft;
-            GameButtonState actionRight;
-
-            GameButtonState shoulderLeft;
-            GameButtonState shoulderRight;
-
-            GameButtonState start;
-            GameButtonState back;
-
-            // dummyender for testing # of buttons
-            GameButtonState dummyEnder;
-        };
-    };
-};
-
-inline int GetButtonCount(GameControllerInput *controller)
-{
-    int result = ARRAY_COUNT(controller->buttons);
-    return result;
-}
-
 //     |  player makes input  |   we process input  |   inputs take effect
 //  frame0                  frame1                frame2
 //  so, input is always one frame behind
 struct GameInput
 {
-    GameControllerInput controllers[5];
+    I32 keydown[256];
 };
-
-inline GameControllerInput *GetKeyboardInput(GameInput *gameInput)
-{
-    return &(gameInput->controllers[0]);
-}
-
-inline int GetControllerCount(GameInput *gameInput)
-{
-    return ARRAY_COUNT(gameInput->controllers);
-}
-
-inline GameControllerInput *GetController(GameInput *gameInput, int i)
-{
-    ASSERT(i < ARRAY_COUNT(gameInput->controllers));
-    return gameInput->controllers + i;
-}
 
 #define SYS_ERROR(name) void name(char *format, ...)
 typedef SYS_ERROR(SysError_t);
