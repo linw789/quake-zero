@@ -17,6 +17,28 @@ struct CacheUser
     void *data;
 };
 
+enum ALLocType 
+{
+    ZONE,
+    LOWHUNK,
+    TEMPHUNK,
+    CACHE,
+    TEMPSTACK
+};
+
+//=================================
+// Dynamic variable tracking
+//=================================
+
+
+struct Cvar
+{
+    char *name;
+    float val;
+    // set true to save the variable before quitting
+    I32 archive;
+};
+
 
 //=================================
 // File system
@@ -27,19 +49,9 @@ struct CacheUser
 #define PAK0_FILE_NUM 339
 
 /*
- * PAK file in memory
- * pack_header | file_data0 | file_data1 | ... | packfile_header0 | packfile_header1 | ...
- */
-
-enum ALLocType 
-{
-    ZONE,
-    LOWHUNK,
-    TEMPHUNK,
-    CACHE,
-    TEMPSTACK
-};
-
+ PAK file in memory
+ pack_header | file_data0 | file_data1 | ... | packfile_header0 | packfile_header1 | ...
+*/
 struct PackFile
 {
     char name[MAX_PACK_FILE_PATH];

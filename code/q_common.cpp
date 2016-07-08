@@ -10,7 +10,7 @@
 /*
  * str is null terminated string
  */
-int StringLength(char *str)
+int StringLength(const char *str)
 {
     int length = 0;
 
@@ -296,18 +296,18 @@ void MemCpy(void *dest, void *src, int count)
  * Memory blocks are 8-byte aligned.
  */
 
-#define DYNAMIC_ZONE_SIZE 96 * 1024
+#define DYNAMIC_ZONE_SIZE 128 * 1024
 #define ZONE_ID 0x1d4a11
 #define MIN_FRAGMENT 64
 
 struct MemoryBlock
 {
     // including sizeof(MemoryBlock)
-    int size; 
+    I32 size; 
     // a tag of 0 is a free block
-    int tag;
+    I32 tag;
     // memory guard, should always be ZONE_ID
-    int id;
+    I32 id;
 
     /*
      * If padding was at the end of this struct, the size of this struct would
@@ -332,10 +332,10 @@ struct MemoryZone
     // serves as reference node in the circular linked list
     MemoryBlock tailhead; 
     // total bytes allocated including sizoef(MemoryZone)
-    int size;
+    I32 size;
     // structure needs to be aligned to the size of the largest primitive type 
     // data in the structure, in this case it's be 8-byte pointer "rover"
-    int padding;
+    I32 padding;
 };
 
 MemoryZone *g_mainZone;
@@ -903,7 +903,79 @@ void MemoryInit(void *buf, int size)
     ZoneClearAll(g_mainZone);
 }
 
+//=================================
+// Dynamic variable tracking
+//=================================
 
+#define MAX_CVARS 512
+#define CVAR_HASH_MASK (MAX_CVARS - 1)
+
+struct CvarSystem
+{
+    I32 count;
+    I32 hash[MAX_CVARS];
+    Cvar cvars[MAX_CVARS];
+};
+
+CvarSystem g_cvarSystem;
+
+I32 GetCvarHashKey(const char *name)
+{
+    // credit: http://www.cse.yorku.ca/~oz/hash.html
+    I32 hash = 5381;
+    char *c = (char *)name;
+    while (*c)
+    {
+        hash = (hash << 5) + hash + *c;
+        c++;
+    }
+    I32 hash_key = hash & CVAR_HASH_MASK;
+    if (hash_key == 0)
+    {
+        hash_key = 1;
+    }
+    return hash_key;
+}
+
+// if cvar is not found, create one with default value 0
+Cvar *CvarGet(const char *name)
+{
+    Cvar *result = NULL;
+
+    I32 hash_key = GetCvarHashKey(name);
+    I32 hash_index = hash_key;
+    while (g_cvarSystem.hash[hash_index])
+    {
+        if (g_cvarSystem.hash[hash_index] == hash_key)
+        {
+            if (StringCompare(g_cvarSystem.cvars[hash_index].name, name) == 0)
+            {
+                result = &g_cvarSystem.cvars[hash_index];
+            }
+        }
+        hash_index = (hash_index++) & CVAR_HASH_MASK;
+    } 
+
+    if (!result)
+    {   
+        ASSERT(g_cvarSystem.count < MAX_CVARS);
+        g_cvarSystem.hash[hash_index] = hash_key;
+        result = &g_cvarSystem.cvars[hash_index];
+
+        I32 length = StringLength(name) + 1;
+        result->name = (char *)ZoneMalloc(length);
+        StringCopy(result->name, length, name);
+    }
+    
+    return result;
+}
+
+Cvar *CvarSet(const char *name, float val)
+{
+    Cvar *result = CvarGet(name);
+    result->val = val;
+    return result;
+}
 
 
 //=================================
