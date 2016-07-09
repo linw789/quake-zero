@@ -958,7 +958,11 @@ Cvar *CvarGet(const char *name)
 
     if (!result)
     {   
-        ASSERT(g_cvar_pool.count < MAX_CVARS);
+        if (g_cvar_pool.count >= MAX_CVARS)
+        {
+            g_platformAPI.SysError("CvarGet: cvar count exceeds the maximum!");
+        }
+        g_cvar_pool.count++;
 		g_cvar_pool.hash[hash_index] = hash_key;
         result = &g_cvar_pool.cvars[hash_index];
 
