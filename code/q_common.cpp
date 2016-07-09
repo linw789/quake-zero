@@ -328,7 +328,7 @@ struct MemoryZone
     // points to a free memory block most of time, could potentially speed up
     // searching of free memory block
     MemoryBlock *rover;
-    // the same as g_cacheHead, 
+    // the same as g_cache_head, 
     // serves as reference node in the circular linked list
     MemoryBlock tailhead; 
     // total bytes allocated including sizoef(MemoryZone)
@@ -338,13 +338,13 @@ struct MemoryZone
     I32 padding;
 };
 
-MemoryZone *g_mainZone;
+MemoryZone *g_main_zone;
 
 void ZoneCheckHeap()
 {
-    MemoryBlock *block = g_mainZone->tailhead.next;
+    MemoryBlock *block = g_main_zone->tailhead.next;
 
-    while (block->next != &g_mainZone->tailhead)
+    while (block->next != &g_main_zone->tailhead)
     {
         if ((U8 *)block + block->size != (U8 *)block->next)
         {
@@ -412,9 +412,9 @@ void ZoneFree(void *ptr)
         block->next->prev = other;
         other->size = other->size + block->size;
         
-        if (g_mainZone->rover == block)
+        if (g_main_zone->rover == block)
         {
-            g_mainZone->rover = other;
+            g_main_zone->rover = other;
         }
 
         block = other;
@@ -428,9 +428,9 @@ void ZoneFree(void *ptr)
         other->prev = block;
         block->size = block->size + other->size;
 
-        if (g_mainZone->rover == other)
+        if (g_main_zone->rover == other)
         {
-            g_mainZone->rover = block;
+            g_main_zone->rover = block;
         }
     }
 }
@@ -446,13 +446,13 @@ void *ZoneTagMalloc(int size, int tag)
     size += 4; // space at the end of memory block for trash tester
     size = (size + 7) & ~7;
 
-    MemoryBlock *candidate = g_mainZone->rover;
+    MemoryBlock *candidate = g_main_zone->rover;
 
     // Walk through all memory blocks and try to find one that's free and have 
     // enough space.
     for (;;)
     {
-        if (candidate == g_mainZone->rover->prev)
+        if (candidate == g_main_zone->rover->prev)
         {
             return NULL; // scanned all memory block, couldn't find one
         }
@@ -490,7 +490,7 @@ void *ZoneTagMalloc(int size, int tag)
     candidate->id = ZONE_ID;
 
     // next allocation will start looking here
-    g_mainZone->rover = candidate->next;
+    g_main_zone->rover = candidate->next;
 
     // marker for memory trash testing
     // TODO lw: ????
@@ -543,13 +543,13 @@ struct HunkHeader
     char name[16]; // at most 15 characters, and a '\0'
 };
 
-U8 *g_hunkBase;
-int g_hunkTotalSize;
+U8 *g_hunk_base;
+int g_hunk_total_size;
 
-int g_hunkLowUsed;
-int g_hunkHighUsed;
-int g_hunkTempUsed;
-bool g_hunkTempActive;
+int g_hunk_low_used;
+int g_hunk_high_used;
+int g_hunk_temp_used;
+bool g_hunk_temp_active;
 
 inline int Align16(int v)
 {
@@ -574,13 +574,13 @@ void *HunkLowAlloc(int size, char *name)
     // align to 16 bytes
     size = Align16(size + sizeof(HunkHeader));
 
-    if (g_hunkTotalSize - g_hunkLowUsed - g_hunkHighUsed < size)
+    if (g_hunk_total_size - g_hunk_low_used - g_hunk_high_used < size)
     {
         g_platformAPI.SysError("HunkLowAlloc: out of memory");
     }
 
-    HunkHeader *hheader = (HunkHeader *)(g_hunkBase + g_hunkLowUsed);
-    g_hunkLowUsed += size;
+    HunkHeader *hheader = (HunkHeader *)(g_hunk_base + g_hunk_low_used);
+    g_hunk_low_used += size;
 
     // TODO lw: free cache memory if necessary
 
@@ -608,13 +608,13 @@ void *HunkHighAlloc(int size, char *name)
 
     size = Align16(size + sizeof(HunkHeader));
 
-    if (g_hunkTotalSize - g_hunkLowUsed - g_hunkHighUsed < size)
+    if (g_hunk_total_size - g_hunk_low_used - g_hunk_high_used < size)
     {
         g_platformAPI.SysError("HunkHighAlloc: out of memory");
     }
 
-    g_hunkHighUsed += size;
-    HunkHeader *hh = (HunkHeader *)(g_hunkBase + g_hunkTotalSize - g_hunkHighUsed);
+    g_hunk_high_used += size;
+    HunkHeader *hh = (HunkHeader *)(g_hunk_base + g_hunk_total_size - g_hunk_high_used);
 
     // TODO lw: free cache memory if necessary
 
@@ -627,23 +627,23 @@ void *HunkHighAlloc(int size, char *name)
 
 void HunkFreeTemp()
 {
-    g_hunkTempActive = false;
-    g_hunkHighUsed -= g_hunkTempUsed;
-    g_hunkTempUsed = 0;
+    g_hunk_temp_active = false;
+    g_hunk_high_used -= g_hunk_temp_used;
+    g_hunk_temp_used = 0;
 }
 
 // allocating on high stack, used when loading asset files from disk
 void *HunkTempAlloc(int size)
 {
     // the second temp allocation removes the first temp data
-    if (g_hunkTempActive)
+    if (g_hunk_temp_active)
     {
         HunkFreeTemp();
     }
-    g_hunkTempActive = true;
-    int oldHighUsed = g_hunkHighUsed;
+    g_hunk_temp_active = true;
+    int old_high_used = g_hunk_high_used;
     void *result = HunkHighAlloc(size, "temp");
-    g_hunkTempUsed = g_hunkHighUsed - oldHighUsed;
+    g_hunk_temp_used = g_hunk_high_used - old_high_used;
     return result;
 }
 
@@ -659,7 +659,7 @@ void *HunkHighAlloc(int size)
  * Cache memory is used for dynamic loading objects. Caches are allocated 
  * inbetween low stack and high stack, and can be removed if necessary for hunk 
  * allocation. A circular linked list is used, in which the 
- * g_cacheHead->lru_prev is the Least Recent Used cache.
+ * g_cache_head->lru_prev is the Least Recent Used cache.
  *
  * Another circular linked list is used to keep cache pointers. Free memory is 
  * searched by looking from the top of low hunk and move linearly along the 
@@ -680,9 +680,9 @@ struct CacheHeader
     int padding;
 };
 
-// the g_cacheHead doesn't store any real data, it serves as a reference point
+// the g_cache_head doesn't store any real data, it serves as a reference point
 // in the cache circular link.
-CacheHeader g_cacheHead;
+CacheHeader g_cache_head;
 
 void CacheUnlinkLRU(CacheHeader *ch)
 {
@@ -705,10 +705,10 @@ void CacheMarkMRU(CacheHeader *ch)
         CacheUnlinkLRU(ch);
     }
 
-    g_cacheHead.lru_next->lru_prev = ch;
-    ch->lru_next = g_cacheHead.lru_next;
-    g_cacheHead.lru_next = ch;
-    ch->lru_prev = &g_cacheHead;
+    g_cache_head.lru_next->lru_prev = ch;
+    ch->lru_next = g_cache_head.lru_next;
+    g_cache_head.lru_next = ch;
+    ch->lru_prev = &g_cache_head;
 }
 
 // if the cache has been loaded move it to the top of LRU list
@@ -747,16 +747,16 @@ void CacheFree(CacheUser *cu)
 
 void CacheFlushAll()
 {
-    CacheHeader *ch = g_cacheHead.next;
-    while(ch != &g_cacheHead)
+    CacheHeader *ch = g_cache_head.next;
+    while(ch != &g_cache_head)
     {
         ch->user->data = NULL;
     }
 
-    g_cacheHead.next = &g_cacheHead;
-    g_cacheHead.prev = &g_cacheHead;
-    g_cacheHead.lru_next = &g_cacheHead;
-    g_cacheHead.lru_prev = &g_cacheHead;
+    g_cache_head.next = &g_cache_head;
+    g_cache_head.prev = &g_cache_head;
+    g_cache_head.lru_next = &g_cache_head;
+    g_cache_head.lru_prev = &g_cache_head;
 }
 
 /*
@@ -766,71 +766,71 @@ void CacheFlushAll()
  * */
 CacheHeader *CacheTryAlloc(int size)
 {
-    CacheHeader *newCache = NULL;
-    CacheHeader *oldCache = NULL;
+    CacheHeader *new_cache = NULL;
+    CacheHeader *old_cache = NULL;
 
     // cache list is empty
-    if (g_cacheHead.next == &g_cacheHead)
+    if (g_cache_head.next == &g_cache_head)
     {
-        if (g_hunkTotalSize - g_hunkLowUsed - g_hunkHighUsed < size)
+        if (g_hunk_total_size - g_hunk_low_used - g_hunk_high_used < size)
         {
             g_platformAPI.SysError("CacheTryAlloc: size is greater than free hunk\n");
         }
-        newCache = (CacheHeader *)(g_hunkBase + g_hunkLowUsed);
-        MemSet(newCache, 0, sizeof(*newCache));
-        newCache->size = size;
+        new_cache = (CacheHeader *)(g_hunk_base + g_hunk_low_used);
+        MemSet(new_cache, 0, sizeof(*new_cache));
+        new_cache->size = size;
 
-        g_cacheHead.next = newCache;
-        g_cacheHead.prev = newCache;
-        newCache->next = &g_cacheHead;
-        newCache->prev = &g_cacheHead;
+        g_cache_head.next = new_cache;
+        g_cache_head.prev = new_cache;
+        new_cache->next = &g_cache_head;
+        new_cache->prev = &g_cache_head;
 
-        CacheMarkMRU(newCache);
+        CacheMarkMRU(new_cache);
 
-        return newCache;
+        return new_cache;
     }
 
-    newCache = (CacheHeader *)(g_hunkBase + g_hunkLowUsed);
-    oldCache = g_cacheHead.next;
+    new_cache = (CacheHeader *)(g_hunk_base + g_hunk_low_used);
+    old_cache = g_cache_head.next;
 
     // linearly go through linked list, try to find a hole inbetween caches
     do
     {
-        if ((U8 *)oldCache - (U8 *)newCache >= size)
+        if ((U8 *)old_cache - (U8 *)new_cache >= size)
         {
-            MemSet(newCache, 0, sizeof(*newCache));
-            newCache->size = size;
+            MemSet(new_cache, 0, sizeof(*new_cache));
+            new_cache->size = size;
 
-            // insert newCache before the oldCache in the linked list
-            oldCache->prev->next = newCache;
-            newCache->prev = oldCache->prev;
-            newCache->next = oldCache;
-            oldCache->prev = newCache;
+            // insert new_cache before the old_cache in the linked list
+            old_cache->prev->next = new_cache;
+            new_cache->prev = old_cache->prev;
+            new_cache->next = old_cache;
+            old_cache->prev = new_cache;
 
-            CacheMarkMRU(newCache);
+            CacheMarkMRU(new_cache);
 
-            return newCache;
+            return new_cache;
         }
 
-        newCache = (CacheHeader *)((U8 *)oldCache + oldCache->size);
-        oldCache = oldCache->next;
-    } while (oldCache != &g_cacheHead);
+        new_cache = (CacheHeader *)((U8 *)old_cache + old_cache->size);
+        old_cache = old_cache->next;
+    } while (old_cache != &g_cache_head);
 
     // no hole big enough, allocate at the end, between the last cache and high stack
-    if (g_hunkBase + g_hunkTotalSize - g_hunkHighUsed - (U8 *)newCache >= size)
+    if (g_hunk_base + g_hunk_total_size - g_hunk_high_used - (U8 *)new_cache >= size)
     {
-        MemSet(newCache, 0, sizeof(*newCache));
-        newCache->size = size;
+        MemSet(new_cache, 0, sizeof(*new_cache));
+        new_cache->size = size;
 
-        // insert newCache to the end, between g_cacheHead->prev and g_cacheHead
-        g_cacheHead.prev->next = newCache;
-        newCache->prev = g_cacheHead.prev;
-        newCache->next = &g_cacheHead;
-        g_cacheHead.prev = newCache;
+        // insert new_cache to the end, between g_cache_head->prev and g_cache_head
+        g_cache_head.prev->next = new_cache;
+        new_cache->prev = g_cache_head.prev;
+        new_cache->next = &g_cache_head;
+        g_cache_head.prev = new_cache;
 
-        CacheMarkMRU(newCache);
+        CacheMarkMRU(new_cache);
 
-        return newCache;
+        return new_cache;
     }
 
     return NULL;
@@ -865,12 +865,12 @@ void *CacheAlloc(CacheUser *cu, int size, char *name)
             break ;
         }
 
-        if (g_cacheHead.next == &g_cacheHead)
+        if (g_cache_head.next == &g_cache_head)
         {
             g_platformAPI.SysError("CacheAlloc: out of memory");
         }
 
-        CacheFree(g_cacheHead.lru_prev->user);
+        CacheFree(g_cache_head.lru_prev->user);
     }
 
     return ch->user->data;
@@ -878,29 +878,29 @@ void *CacheAlloc(CacheUser *cu, int size, char *name)
 
 void CacheInit()
 {
-    g_cacheHead.next = &g_cacheHead;
-    g_cacheHead.prev = &g_cacheHead;
-    g_cacheHead.lru_next = &g_cacheHead;
-    g_cacheHead.lru_prev = &g_cacheHead;
-    g_cacheHead.size = 0;
+    g_cache_head.next = &g_cache_head;
+    g_cache_head.prev = &g_cache_head;
+    g_cache_head.lru_next = &g_cache_head;
+    g_cache_head.lru_prev = &g_cache_head;
+    g_cache_head.size = 0;
 
     // TODO lw: add flushall command
 }
 
 void MemoryInit(void *buf, int size)
 {
-    g_hunkBase = (U8 *)buf;
-    g_hunkTotalSize = size;
-    g_hunkLowUsed = 0;
-    g_hunkHighUsed = 0;
+    g_hunk_base = (U8 *)buf;
+    g_hunk_total_size = size;
+    g_hunk_low_used = 0;
+    g_hunk_high_used = 0;
 
     CacheInit();
 
     int zoneSize = DYNAMIC_ZONE_SIZE;
     // TODO lw: set zone size from command line
-    g_mainZone = (MemoryZone *)HunkLowAlloc(zoneSize, "zone");
-    g_mainZone->size = zoneSize;
-    ZoneClearAll(g_mainZone);
+    g_main_zone = (MemoryZone *)HunkLowAlloc(zoneSize, "zone");
+    g_main_zone->size = zoneSize;
+    ZoneClearAll(g_main_zone);
 }
 
 //=================================
@@ -917,7 +917,7 @@ struct CvarSystem
     Cvar cvars[MAX_CVARS];
 };
 
-CvarSystem g_cvarSystem;
+CvarSystem g_cvar_pool;
 
 I32 GetCvarHashKey(const char *name)
 {
@@ -934,7 +934,7 @@ I32 GetCvarHashKey(const char *name)
     {
         hash_key = 1;
     }
-    return hash_key;
+    return 22;
 }
 
 // if cvar is not found, create one with default value 0
@@ -944,13 +944,13 @@ Cvar *CvarGet(const char *name)
 
     I32 hash_key = GetCvarHashKey(name);
     I32 hash_index = hash_key;
-    while (g_cvarSystem.hash[hash_index])
+    while (g_cvar_pool.hash[hash_index])
     {
-        if (g_cvarSystem.hash[hash_index] == hash_key)
+        if (g_cvar_pool.hash[hash_index] == hash_key)
         {
-            if (StringCompare(g_cvarSystem.cvars[hash_index].name, name) == 0)
+            if (StringCompare(g_cvar_pool.cvars[hash_index].name, name) == 0)
             {
-                result = &g_cvarSystem.cvars[hash_index];
+                result = &g_cvar_pool.cvars[hash_index];
             }
         }
         hash_index = (hash_index++) & CVAR_HASH_MASK;
@@ -958,9 +958,9 @@ Cvar *CvarGet(const char *name)
 
     if (!result)
     {   
-        ASSERT(g_cvarSystem.count < MAX_CVARS);
-        g_cvarSystem.hash[hash_index] = hash_key;
-        result = &g_cvarSystem.cvars[hash_index];
+        ASSERT(g_cvar_pool.count < MAX_CVARS);
+		g_cvar_pool.hash[hash_index] = hash_key;
+        result = &g_cvar_pool.cvars[hash_index];
 
         I32 length = StringLength(name) + 1;
         result->name = (char *)ZoneMalloc(length);
@@ -984,15 +984,15 @@ Cvar *CvarSet(const char *name, float val)
 
 #define MAX_FILE_HANDLES 10
 
-FILE *g_fileHandles[MAX_FILE_HANDLES];
+FILE *g_file_handles[MAX_FILE_HANDLES];
 
-SearchPath *g_searchPath;
+SearchPath *g_search_path;
 
 int FileGetAvailableHande()
 {
     for (int i = 0; i < MAX_FILE_HANDLES; ++i)
     {
-        if (!g_fileHandles[i])
+        if (!g_file_handles[i])
         {
             return i;
         }
@@ -1036,7 +1036,7 @@ int FileOpenForRead(char *path, int *handle_out)
 
     if (f)
     {
-        g_fileHandles[handle] = f;
+        g_file_handles[handle] = f;
         *handle_out = handle;
         result = FileLength(f);
     }
@@ -1052,7 +1052,7 @@ int FileOpenForRead(char *path, int *handle_out)
 void FileClose(int handle)
 {
     // if it's a file in PAK, don't close it
-    for (SearchPath *sp = g_searchPath; sp != NULL; ++sp)
+    for (SearchPath *sp = g_search_path; sp != NULL; ++sp)
     {
         if (sp->pack != NULL && sp->pack->handle == handle)
         {
@@ -1067,14 +1067,14 @@ inline size_t
 FileRead(int filehandle, void *dest, int count)
 {
     ASSERT(count >= 0);
-    size_t result = fread(dest, 1, count, g_fileHandles[filehandle]);
+    size_t result = fread(dest, 1, count, g_file_handles[filehandle]);
     return result;
 }
 
 inline void 
 FileSeek(int filehandle, int position)
 {
-    fseek(g_fileHandles[filehandle], position, SEEK_SET);
+    fseek(g_file_handles[filehandle], position, SEEK_SET);
 }
 
 
@@ -1123,7 +1123,7 @@ int FileFind(const char *filepath, int *handle)
         g_platformAPI.SysError("handle is already set");
     }
 
-    SearchPath *searchPath = g_searchPath;
+    SearchPath *searchPath = g_search_path;
     for ( ; searchPath != NULL; searchPath = searchPath->next)
     {
         // search in PAK file
@@ -1287,8 +1287,8 @@ void FileAddGameDiectory(char *dir)
     SearchPath *search = (SearchPath *)HunkLowAlloc(sizeof(SearchPath), "searchpath");
     StringCopy(search->filename, MAX_OS_PATH_LENGTH, dir);
     // insert game directory in front of search path list
-    search->next = g_searchPath;
-    g_searchPath = search;
+    search->next = g_search_path;
+    g_search_path = search;
 
     char packfile[MAX_OS_PATH_LENGTH];
     PackHeader *pack;
@@ -1306,8 +1306,8 @@ void FileAddGameDiectory(char *dir)
         search = (SearchPath *)HunkLowAlloc(sizeof(SearchPath), "packpath");
         search->pack = pack;
         // insert in front of search path list
-        search->next = g_searchPath;
-        g_searchPath = search;
+        search->next = g_search_path;
+        g_search_path = search;
     }
 }
 
