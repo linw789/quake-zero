@@ -32,8 +32,8 @@
 
 // used for edge caching mechanism
 #define EDGE_FULLY_CLIPPED	    0x80000000
-#define FRAMECOUNT_MASK			0x7fffffff
-#define EDGE_PARTIALLY_CLIPPED  FRAMECOUNT_MASK
+#define EDGE_FRAMECOUNT_MASK	0x7fffffff
+#define EDGE_PARTIALLY_CLIPPED  EDGE_FRAMECOUNT_MASK
 
 // for data alignment on function stack
 #define CACHE_SIZE 64
@@ -77,6 +77,9 @@ inline Vec3f TransformPointToView(const Camera *camera, Vec3f point)
 {
     Vec3f result;
     
+    /*
+     transform_matrix = inverse(rotation) * inverse(translation)
+    */
     Vec3f pt = point - camera->position;
     result.x = Vec3Dot(camera->rotx, pt);
     // swap y and z, same reason as in TransformDirectionToView
@@ -236,124 +239,248 @@ void UpdateVisibleLeaves(RenderData *renderdata)
     }
 }
 
-struct LastVertData
+struct LastVertex
 {
-    float screenX1;
-    float screenY1;
-    float viewInvZ1; // inverse z in view space
-    int ceilScreenY1;
-    U32 isValid;
+    float screen_x1;
+    float screen_y1;
+    float view_invz1; // inverse z in view space
+    int ceil_screen_y1;
+    U32 is_valid;
 };
 
-U32 EmitIEdge(Vec3f v0, Vec3f v1, Camera *camera, LastVertData *lastVertData, 
-                 B32 onlyNearInvZ, U32 *needCache, Edge *edgeLord, 
-                 RenderData *renderdata)
+// If the start point of the edge is inside the frustum and the end point of the
+// edge is outside, the clipped point is an exit point. Otherwise it's an enter
+// point. We want to make a vertical edge from exit point to enter point, so the
+// new edge following the same clock-wise winding. 
+struct SurfaceClipResult
 {
-    float screenX0 = 0, screenX1 = 0; 
-    float screenY0 = 0, screenY1 = 0;
-    float viewInvZ0 = 0, viewInvZ1 = 0;
-    I32 ceilScreenY0 = 0, ceilScreenY1 = 0;
+    Vec3f left_enter_vert;
+    Vec3f left_exit_vert;
+    Vec3f right_enter_vert;
+    Vec3f right_exit_vert;
+};
 
-    if (lastVertData->isValid)
+struct EmitIEdgeResult
+{
+    B32 left_edge_clipped;
+    B32 right_edge_clipped;
+    B32 edge_emitted;
+};
+
+EmitIEdgeResult EmitIEdge(Vec3f v0, Vec3f v1, B32 onlyNearInvZ, U32 *iedge_cache_state,
+                          Camera *camera, RenderData *renderdata, ClipPlane *clip_plane, 
+                          Edge *edgeOwner, LastVertex *last_vert, SurfaceClipResult *scr)
+{
+    //
+    // clip the edge against the frustum planes in world space
+    //
+
+    if (renderdata->currentIEdge - renderdata->iedges == 104)
     {
-        screenX0 = lastVertData->screenX1;
-        screenY0 = lastVertData->screenY1;
-        viewInvZ0 = lastVertData->viewInvZ1;
-        ceilScreenY0 = lastVertData->ceilScreenY1;
+        I32 a = 104;
+    }
+
+    EmitIEdgeResult result = {0};
+
+    while (clip_plane != NULL)
+    {
+        float d0 = Vec3Dot(v0, clip_plane->normal) - clip_plane->distance;
+        float d1 = Vec3Dot(v1, clip_plane->normal) - clip_plane->distance;
+
+        if (d0 >= 0) // v0 is not clipped
+        {
+            if (d1 < 0) // v1 is clipped
+            {   
+                // don't cache partially clipped edge
+                *iedge_cache_state = EDGE_PARTIALLY_CLIPPED;
+
+                float t = d0 / (d0 - d1);
+                Vec3f newPoint = v0 + t * (v1 - v0);
+
+                v1 = newPoint;
+                if (clip_plane->leftEdge)
+                {
+                    result.left_edge_clipped = 1;
+                    scr->left_exit_vert = newPoint;
+                }
+                else if (clip_plane->rightEdge)
+                {
+                    result.right_edge_clipped = 1;
+                    scr->right_exit_vert = newPoint;
+                }
+            }
+            else
+            {
+                // both points are unclipped, try next clip plane
+                // don't change iedge_cache_state
+            }
+        }
+        else // d0 < 0, v0 is clipped
+        {   
+            // v0 is clipped, so it's not the same as the last v1
+            last_vert->is_valid = 0;
+
+            if (d1 < 0) // both points are clipped
+            {   
+                // TODO lw: why this check?
+                if (!result.left_edge_clipped)
+                {
+                    *iedge_cache_state = EDGE_FULLY_CLIPPED | (renderdata->framecount & EDGE_FRAMECOUNT_MASK);
+                }
+
+                return result;
+            }
+            else // only v0 is clipped
+            {
+                *iedge_cache_state = EDGE_PARTIALLY_CLIPPED;
+
+                float t = d0 / (d0 - d1);
+                Vec3f newPoint = v0 + t * (v1 - v0);
+
+                v0 = newPoint;
+                if (clip_plane->leftEdge)
+                {
+                    result.left_edge_clipped = 1;
+                    scr->left_enter_vert = newPoint;
+                }
+                else if (clip_plane->rightEdge)
+                {
+                    result.right_edge_clipped = 1;
+                    scr->right_enter_vert = newPoint;
+                }
+            }
+        }
+
+        clip_plane = clip_plane->next;
+    }
+
+    // 
+    // emit iedge
+    // 
+
+    float screen_x0 = 0, screen_x1 = 0; 
+    float screen_y0 = 0, screen_y1 = 0;
+    float view_invz0 = 0, view_invz1 = 0;
+    I32 ceil_screen_y0 = 0, ceil_screen_y1 = 0;
+
+    if (last_vert->is_valid)
+    {
+        screen_x0 = last_vert->screen_x1;
+        screen_y0 = last_vert->screen_y1;
+        view_invz0 = last_vert->view_invz1;
+        ceil_screen_y0 = last_vert->ceil_screen_y1;
     }
     else
     {
-        Vec3f vertView0 = TransformPointToView(camera, v0);
-
-        if (vertView0.z < camera->nearZ)
+        Vec3f view_vert0 = TransformPointToView(camera, v0);
+        for (I32 i = 0; i < 4; ++i)
         {
-            vertView0.z = camera->nearZ;
+            float d0 = Vec3Dot(view_vert0, g_camera.frustumPlanes[i].normal) - g_camera.frustumPlanes[i].distance;
+            if (d0 < -0.01f)
+            {
+                d0 = 1;
+            }
         }
 
-        viewInvZ0 = 1.0f / vertView0.z;
-        float scale = camera->scaleZ * viewInvZ0;
-        screenX0 = camera->screenCenter.x + scale * vertView0.x;
-        screenY0 = camera->screenCenter.y - scale * vertView0.y;
+        if (view_vert0.z < camera->nearZ)
+        {
+            view_vert0.z = camera->nearZ;
+        }
 
-        ASSERT(screenY0 > (camera->screenMin.y - 0.5f) 
-               && screenY0 < (camera->screenMax.y + 0.5f));
+        view_invz0 = 1.0f / view_vert0.z;
+        float scale = camera->scaleZ * view_invz0;
+        screen_x0 = camera->screenCenter.x + scale * view_vert0.x;
+        screen_y0 = camera->screenCenter.y - scale * view_vert0.y;
 
-        screenX0 = Clamp(camera->screenMin.x, camera->screenMax.x, screenX0);
-        screenY0 = Clamp(camera->screenMin.y, camera->screenMax.y, screenY0);
+        ASSERT(screen_y0 > (camera->screenMin.y - 0.5f) 
+               && screen_y0 < (camera->screenMax.y + 0.5f));
 
-        ceilScreenY0 = (I32)ceilf(screenY0);
+        screen_x0 = Clamp(camera->screenMin.x, camera->screenMax.x, screen_x0);
+        screen_y0 = Clamp(camera->screenMin.y, camera->screenMax.y, screen_y0);
+
+        ceil_screen_y0 = (I32)ceilf(screen_y0);
     }
 
-    Vec3f vertView1 = TransformPointToView(camera, v1);
+    Vec3f view_vert1 = TransformPointToView(camera, v1);
+    for (I32 i = 0; i < 4; ++i)
+    {
+        float d1 = Vec3Dot(view_vert1, g_camera.frustumPlanes[i].normal) - g_camera.frustumPlanes[i].distance;
+        if (d1 < -0.01f)
+        {
+            d1 = 1;
+        }
+    }
 
     // TODO lw: why this works?
-    if (vertView1.z < camera->nearZ)
+    if (view_vert1.z < camera->nearZ)
     {
-        vertView1.z = camera->nearZ;
+        view_vert1.z = camera->nearZ;
     }
 
-    viewInvZ1 = 1.0f / vertView1.z;
-    float scale = camera->scaleZ * viewInvZ1;
-    screenX1 = camera->screenCenter.x + scale * vertView1.x;
-    screenY1 = camera->screenCenter.y - scale * vertView1.y;
+    view_invz1 = 1.0f / view_vert1.z;
+    float scale = camera->scaleZ * view_invz1;
+    screen_x1 = camera->screenCenter.x + scale * view_vert1.x;
+    screen_y1 = camera->screenCenter.y - scale * view_vert1.y;
 
-    ASSERT(screenY1 > (camera->screenMin.y - 0.5f)
-           && screenY1 < (camera->screenMax.y + 0.5f));
+    ASSERT(screen_y1 > (camera->screenMin.y - 0.5f)
+           && screen_y1 < (camera->screenMax.y + 0.5f));
 
-    screenX1 = Clamp(camera->screenMin.x, camera->screenMax.x, screenX1);
-    screenY1 = Clamp(camera->screenMin.y, camera->screenMax.y, screenY1);
+    screen_x1 = Clamp(camera->screenMin.x, camera->screenMax.x, screen_x1);
+    screen_y1 = Clamp(camera->screenMin.y, camera->screenMax.y, screen_y1);
 
-    ceilScreenY1 = (I32)ceilf(screenY1);
+    ceil_screen_y1 = (I32)ceilf(screen_y1);
 
     // find minimum z value
-    if (viewInvZ1 > viewInvZ0)
+    if (view_invz1 > view_invz0)
     {
-        viewInvZ0 = viewInvZ1;
+        view_invz0 = view_invz1;
     }
-    if (viewInvZ0 > renderdata->nearestInvZ) 
+    if (view_invz0 > renderdata->nearestInvZ) 
     {
-        renderdata->nearestInvZ = viewInvZ0;
+        renderdata->nearestInvZ = view_invz0;
     }
 
     // backup v1 data for reuse
-    lastVertData->screenX1 = screenX1;
-    lastVertData->screenY1 = screenY1;
-    lastVertData->viewInvZ1 = viewInvZ1;
-    lastVertData->ceilScreenY1 = ceilScreenY1;
+    last_vert->screen_x1 = screen_x1;
+    last_vert->screen_y1 = screen_y1;
+    last_vert->view_invz1 = view_invz1;
+    last_vert->ceil_screen_y1 = ceil_screen_y1;
 
     // For right edges made of clipped points, we only need nearest z value, we
     // don't need stepping infomation because it's on right screen edge.
     if (onlyNearInvZ)
     {
-        return 0;
+        return result;
     }
 
-    if (ceilScreenY0 == ceilScreenY1)
+    result.edge_emitted = 1;
+
+    if (ceil_screen_y0 == ceil_screen_y1)
     {
         // cache unclipped horizontal edges as fully clipped
-        if (*needCache != EDGE_PARTIALLY_CLIPPED)
+        if (*iedge_cache_state != EDGE_PARTIALLY_CLIPPED)
         {
-            *needCache = EDGE_FULLY_CLIPPED | (renderdata->frameCount & FRAMECOUNT_MASK);
+            *iedge_cache_state = EDGE_FULLY_CLIPPED | (renderdata->framecount & EDGE_FRAMECOUNT_MASK);
         }
-        return 1;
+        return result;
     }
 
     IEdge *iedge = renderdata->currentIEdge++;
 
-    iedge->owner = edgeLord;
-    iedge->nearInvZ = viewInvZ0;
+    iedge->owner = edgeOwner;
+    iedge->nearInvZ = view_invz0;
 
-    // the screen origin is at top-left corner, thus topY has smaller value
-    I32 topY, bottomY;
+    // the screen origin is at top-left corner, thus top_y has smaller value
+    I32 top_y, bottom_y;
     float x_start, x_step;
 
     // points are passed in clock-wise, trailing(right) edge
-    if (ceilScreenY0 < ceilScreenY1)
+    if (ceil_screen_y0 < ceil_screen_y1)
     {   
-        topY = ceilScreenY0;
-        bottomY = ceilScreenY1 - 1; // floor(screenY1)
-        x_step = (screenX1 - screenX0) / (screenY1 - screenY0);
-        x_start = screenX0 + (ceilScreenY0 - screenY0) * x_step;
+        top_y = ceil_screen_y0;
+        bottom_y = ceil_screen_y1 - 1; // floor(screen_y1)
+        x_step = (screen_x1 - screen_x0) / (screen_y1 - screen_y0);
+        x_start = screen_x0 + (ceil_screen_y0 - screen_y0) * x_step;
 
         iedge->isurfaceOffsets[0] = 
             (U32)(renderdata->currentISurface - renderdata->isurfaces);
@@ -361,14 +488,14 @@ U32 EmitIEdge(Vec3f v0, Vec3f v1, Camera *camera, LastVertData *lastVertData,
     }
     else // ceilY0 > ceilY1, leading(left) edge
     {   
-        topY = ceilScreenY1;
-        bottomY = ceilScreenY0 - 1; // floor(screenY0)
-        x_step = (screenX0 - screenX1) / (screenY0 - screenY1);
-        x_start = screenX1 + (ceilScreenY1 - screenY1) * x_step;
+        top_y = ceil_screen_y1;
+        bottom_y = ceil_screen_y0 - 1; // floor(screen_y0)
+        x_step = (screen_x0 - screen_x1) / (screen_y0 - screen_y1);
+        x_start = screen_x1 + (ceil_screen_y1 - screen_y1) * x_step;
 
+        iedge->isurfaceOffsets[0] = 0;
         iedge->isurfaceOffsets[1] = 
             (U32)(renderdata->currentISurface - renderdata->isurfaces);
-        iedge->isurfaceOffsets[0] = 0;
     }
 
     iedge->x_step = FloatToFixed20(x_step);
@@ -387,15 +514,15 @@ U32 EmitIEdge(Vec3f v0, Vec3f v1, Camera *camera, LastVertData *lastVertData,
         x_check++; 
     }
 
-    if (renderdata->newIEdges[topY] == NULL 
-        || x_check < renderdata->newIEdges[topY]->x_start)
+    if (renderdata->newIEdges[top_y] == NULL 
+        || x_check < renderdata->newIEdges[top_y]->x_start)
     {   
-        iedge->next = renderdata->newIEdges[topY];
-        renderdata->newIEdges[topY] = iedge;
+        iedge->next = renderdata->newIEdges[top_y];
+        renderdata->newIEdges[top_y] = iedge;
     }
     else
     {
-        IEdge *temp = renderdata->newIEdges[topY];
+        IEdge *temp = renderdata->newIEdges[top_y];
         while (temp->next != NULL && temp->next->x_start < x_check)
         {
             temp = temp->next;
@@ -405,16 +532,16 @@ U32 EmitIEdge(Vec3f v0, Vec3f v1, Camera *camera, LastVertData *lastVertData,
         temp->next = iedge;
     }
 
-    // insert in front, the edge will be removed when scanline reaches the bottomY
-    iedge->nextRemove = renderdata->removeIEdges[bottomY];
-    renderdata->removeIEdges[bottomY] = iedge;
+    // insert in front, the edge will be removed when scanline reaches the bottom_y
+    iedge->nextRemove = renderdata->removeIEdges[bottom_y];
+    renderdata->removeIEdges[bottom_y] = iedge;
 
-    return 1;
+    return result;
 }
 
 U32 ReEmitIEdge(Edge *edge, RenderData *renderdata)
 {
-    IEdge *iedge = renderdata->iedges + edge->cachedIEdgeOffset;
+    IEdge *iedge = renderdata->iedges + edge->iedge_cache_state;
 
     // If the edge was used as leading edge, now it must be trailing edge.
     if (iedge->isurfaceOffsets[0] == NULL)
@@ -436,106 +563,6 @@ U32 ReEmitIEdge(Edge *edge, RenderData *renderdata)
     return 1;
 }
 
-// If the start point of the edge is inside the frustum and the end point of the
-// edge is outside, the clipped point is an exit point. Otherwise it's an enter
-// point. We want to make a vertical edge from exit point to enter point, so the
-// new edge following the same clock-wise winding. 
-struct SurfaceClipResult
-{
-    bool leftEdgeClipped;
-    bool rightEdgeClipped;
-    Vec3f vertLeftEnter;
-    Vec3f vertLeftExit;
-    Vec3f vertRightEnter;
-    Vec3f vertRightExit;
-};
-
-struct EdgeClipResult
-{
-    Vec3f v0, v1;
-    U32 isV0Unclipped;
-    U32 isFullyClipped;
-};
-
-EdgeClipResult ClipEdge(Vec3f v0, Vec3f v1, ClipPlane *clipPlane, 
-                        SurfaceClipResult *scr, U32 *needCache, I32 frameCount)
-{
-    EdgeClipResult result = {0};
-    result.isV0Unclipped = 1;
-
-    while (clipPlane != NULL)
-    {
-        float d0 = Vec3Dot(v0, clipPlane->normal) - clipPlane->distance;
-        float d1 = Vec3Dot(v1, clipPlane->normal) - clipPlane->distance;
-
-        if (d0 >= 0) // v0 is not clipped
-        {   
-            if (d1 < 0) // v1 is clipped
-            {   
-                // don't cache partially clipped edge
-                *needCache = EDGE_PARTIALLY_CLIPPED;
-
-                float t = d0 / (d0 - d1);
-                Vec3f newPoint = v0 + t * (v1 - v0);
-
-                v1 = newPoint;
-                if (clipPlane->leftEdge)
-                {
-                    scr->leftEdgeClipped = true;
-                    scr->vertLeftExit = newPoint;
-                }
-                else if (clipPlane->rightEdge)
-                {
-                    scr->rightEdgeClipped = true;
-                    scr->vertRightExit = newPoint;
-                }
-            }
-            // else, both points are unclipped, try next clip plane
-        }
-        else // d0 < 0, v0 is clipped
-        {   
-            result.isV0Unclipped = 0;
-
-            if (d1 < 0) // both points are clipped
-            {   
-                result.isFullyClipped = 1;
-                // TODO lw: why this check?
-                if (!scr->leftEdgeClipped)
-                {
-                    *needCache = EDGE_FULLY_CLIPPED | (frameCount & FRAMECOUNT_MASK);
-                }
-                break;
-            }
-            else // only v0 is clipped
-            {
-                *needCache = EDGE_PARTIALLY_CLIPPED;
-
-                float t = d0 / (d0 - d1);
-                Vec3f newPoint = v0 + t * (v1 - v0);
-
-                v0 = newPoint;
-                if (clipPlane->leftEdge)
-                {
-                    scr->leftEdgeClipped = true;
-                    scr->vertLeftEnter = newPoint;
-                }
-                else if (clipPlane->rightEdge)
-                {
-                    scr->rightEdgeClipped = true;
-                    scr->vertRightEnter = newPoint;
-                }
-            }
-        }
-
-        clipPlane = clipPlane->next;
-    }
-
-    result.v0 = v0;
-    result.v1 = v1;
-
-    return result;
-}
-
 void RenderFace(Surface *surface, RenderData *renderdata, Camera *camera, 
                 B32 isInSubmodel, I32 clipflag)
 {
@@ -544,21 +571,21 @@ void RenderFace(Surface *surface, RenderData *renderdata, Camera *camera,
     {
         return ;
     }
-    // no more edge
+    // no more edge. a face has a least 4 edges?
     if ((renderdata->currentIEdge + surface->numEdge + 4) >= renderdata->endIEdge)
     {
         renderdata->outOfIEdges += surface->numEdge;
         return ;
     }
 
-    ClipPlane *clipPlane = NULL;
+    ClipPlane *clip_plane = NULL;
     U32 mask = 0x08;
     for (int i = 3; i >= 0; --i, mask >>= 1)
     {
         if (clipflag & mask)
         {
-            camera->worldFrustumPlanes[i].next = clipPlane;
-            clipPlane = &camera->worldFrustumPlanes[i];
+            camera->worldFrustumPlanes[i].next = clip_plane;
+            clip_plane = &camera->worldFrustumPlanes[i];
         }
     }
 
@@ -566,38 +593,40 @@ void RenderFace(Surface *surface, RenderData *renderdata, Camera *camera,
     I32 *surfaceEdges = renderdata->worldModel->surfaceEdges;
     Edge *edges = renderdata->worldModel->edges;
 
-    U32 edgeEmitted = 0;
+    B32 edge_emitted = 0;
+    B32 make_left_edge = 0;
+    B32 make_right_edge = 0;
+    U32 iedge_offset = 0;
+    EmitIEdgeResult emit_result = {0};
     SurfaceClipResult scr = {0};
-    EdgeClipResult ecr = {0};
-    U32 iedgeOffset = 0;
-    LastVertData lastVertData = {0};
+    LastVertex last_vert = {0};
     renderdata->nearestInvZ = 0;
 
     // A surface is convex, so one clip plane will at most generate one pair of 
     // enter and exit clip points
-    for (int i = 0; i < surface->numEdge; ++i)
+    for (I32 i = 0; i < surface->numEdge; ++i)
     {
         // TODO lw: why needs negative edgeIndex?
-        int edgeIndex = surfaceEdges[surface->firstEdge + i];
-        int startVertIndex = 0;
-        int endVertIndex = 1;
-        if (edgeIndex <=0)
+        I32 edge_index = surfaceEdges[surface->firstEdge + i];
+        I32 start_vert_index = 0;
+        I32 end_vert_index = 1;
+        if (edge_index <= 0)
         {
-            edgeIndex = -edgeIndex;
-            startVertIndex = 1;
-            endVertIndex = 0;
+            edge_index = -edge_index;
+            start_vert_index = 1;
+            end_vert_index = 0;
         }
 
         // get the edge
-        Edge *edge = edges + edgeIndex;
+        Edge *edge = edges + edge_index;
 
         if (isInSubmodel == false)
         {
-            if (edge->cachedIEdgeOffset & EDGE_FULLY_CLIPPED)
+            if (edge->iedge_cache_state & EDGE_FULLY_CLIPPED)
             {
-                if ((edge->cachedIEdgeOffset & FRAMECOUNT_MASK) == (U32)renderdata->frameCount)
+                if ((edge->iedge_cache_state & EDGE_FRAMECOUNT_MASK) == (U32)renderdata->framecount)
                 {
-                    lastVertData.isValid = 0;
+                    last_vert.is_valid = 0;
                     // If iedge is fully clipped or horizontal fully accepted 
                     // and we are still in the same frame, meaning we already 
                     // done clipping on this edge, so we can skip ClipEdge() 
@@ -607,67 +636,59 @@ void RenderFace(Surface *surface, RenderData *renderdata, Camera *camera,
             }
             else
             {
-                iedgeOffset = (U32)(renderdata->currentIEdge - renderdata->iedges);
-                IEdge *tempIEdge = (IEdge *)(renderdata->iedges + edge->cachedIEdgeOffset);
+                iedge_offset = (U32)(renderdata->currentIEdge - renderdata->iedges);
+                IEdge *temp_iedge = (IEdge *)(renderdata->iedges + edge->iedge_cache_state);
 
                 // If this iedge's owner was completely inside and emitted 
                 // before, but now is used for another surface, we re-emit it.
-                if ((iedgeOffset > edge->cachedIEdgeOffset) 
-                    && (tempIEdge->owner == edge)) 
+                if ((iedge_offset > edge->iedge_cache_state) 
+                    && (temp_iedge->owner == edge)) 
                 {
-                    edgeEmitted |= ReEmitIEdge(edge, renderdata);
-                    lastVertData.isValid = 0;
+                    edge_emitted += ReEmitIEdge(edge, renderdata);
+                    last_vert.is_valid = 0;
                     continue;
                 }
             }
         }
-        iedgeOffset = (U32)(renderdata->currentIEdge - renderdata->iedges);
+        iedge_offset = (U32)(renderdata->currentIEdge - renderdata->iedges);
 
-        Vec3f startVert = vertices[edge->vertIndex[startVertIndex]].position;
-        Vec3f endVert = vertices[edge->vertIndex[endVertIndex]].position;
+        Vec3f start_vert = vertices[edge->vertIndex[start_vert_index]].position;
+        Vec3f end_vert = vertices[edge->vertIndex[end_vert_index]].position;
 
-        ecr = ClipEdge(startVert, endVert, clipPlane, &scr, &iedgeOffset, renderdata->frameCount);
-        lastVertData.isValid &= ecr.isV0Unclipped;
-        if (!ecr.isFullyClipped)
-        {
-            edgeEmitted |= EmitIEdge(ecr.v0, ecr.v1, camera, &lastVertData, false, 
-                                     &iedgeOffset, edge, renderdata);
-        }
+        emit_result = EmitIEdge(start_vert, end_vert, false, &iedge_offset, camera, 
+                                renderdata, clip_plane, edge, &last_vert, &scr);
+        edge_emitted += emit_result.edge_emitted;
+        make_left_edge += emit_result.left_edge_clipped;
+        make_right_edge += emit_result.right_edge_clipped;
 
-        edge->cachedIEdgeOffset = iedgeOffset;
-        lastVertData.isValid = 1;
+
+        edge->iedge_cache_state = iedge_offset;
+        last_vert.is_valid = 1;
     }
 
-    if (scr.leftEdgeClipped)
+    if (make_left_edge)
     {
+        last_vert.is_valid = 0;
 		// Based on how clip plane list is set up, left clip plane must be the 
-        // first one, namely pclip. Passing pclip->next will exlucde the left 
-        // clip plane
-        ecr = ClipEdge(scr.vertLeftExit, scr.vertLeftEnter, clipPlane->next, 
-                       &scr, &iedgeOffset, renderdata->frameCount);
-        lastVertData.isValid = 0;
-        if (!ecr.isFullyClipped)
-        {
-            edgeEmitted |= EmitIEdge(ecr.v0, ecr.v1, camera, &lastVertData, false, 
-                                     &iedgeOffset, NULL, renderdata);
-        }
+        // first one, namely clip_plane. Passing clip_plane->next will exlucde 
+        // the left clip plane
+        emit_result = EmitIEdge(scr.left_exit_vert, scr.left_enter_vert, false, 
+                                &iedge_offset, camera, renderdata, clip_plane->next, 
+                                NULL, &last_vert, &scr);
+        edge_emitted |= emit_result.edge_emitted;
     }
-    if (scr.rightEdgeClipped)
+    if (make_right_edge)
     {
+        last_vert.is_valid = 0;
         // view_clipplanes[1] is the right clip plane, passing 
         // view_clipplanes[1].next will exclude the right clip plane.
-        ecr = ClipEdge(scr.vertRightExit, scr.vertRightEnter, 
-                       camera->worldFrustumPlanes[1].next, &scr, &iedgeOffset,
-                       renderdata->frameCount);
-        lastVertData.isValid = 0;
-        if (!ecr.isFullyClipped)
-        {
-            edgeEmitted |= EmitIEdge(ecr.v0, ecr.v1, camera, &lastVertData, true, 
-                                     &iedgeOffset, NULL, renderdata);
-        }
+        emit_result = EmitIEdge(scr.right_exit_vert, scr.right_enter_vert, true, 
+                                &iedge_offset, camera, renderdata, 
+                                camera->worldFrustumPlanes[1].next, NULL, &last_vert, &scr);
+        edge_emitted |= emit_result.edge_emitted;
     }
 
-    if (!edgeEmitted)
+    if (!edge_emitted)
     {
         return ;
     }
@@ -790,7 +811,7 @@ void RecurseWorldNode(Node *node, Camera *camera, RenderData *renderdata, int cl
         int count = leaf->numMarksurface;
         while (count)
         {
-            (*mark)->visibleFrame = renderdata->frameCount;
+            (*mark)->visibleFrame = renderdata->framecount;
             mark++;
             count--;
         }
@@ -849,7 +870,7 @@ void RecurseWorldNode(Node *node, Camera *camera, RenderData *renderdata, int cl
                 while (count)
                 {
                     if ((surface->flags & SURF_PLANE_BACK) 
-                        && (surface->visibleFrame == renderdata->frameCount))
+                        && (surface->visibleFrame == renderdata->framecount))
                     {
                         RenderFace(surface, renderdata, camera, false, clipflag);
                     }
@@ -862,7 +883,7 @@ void RecurseWorldNode(Node *node, Camera *camera, RenderData *renderdata, int cl
                 while (count)
                 {
                     if (!(surface->flags & SURF_PLANE_BACK) 
-                        && (surface->visibleFrame == renderdata->frameCount))
+                        && (surface->visibleFrame == renderdata->framecount))
                     {
                         RenderFace(surface, renderdata, camera, false, clipflag);
                     }
@@ -883,44 +904,48 @@ void RenderWorld(Node *nodes, Camera *camera, RenderData *renderdata)
     RecurseWorldNode(nodes, camera, renderdata, 15);
 }
 
-void InsertNewIEdges(IEdge *edgesToAdd, IEdge *edgeList)
+void InsertNewIEdges(IEdge *edges_to_add, IEdge *edge_list)
 {
     IEdge *next_edge;
-    while (edgesToAdd != NULL)
+    while (edges_to_add != NULL)
     {
-        next_edge = edgesToAdd->next;
-        // unroll the loop a bit
         for(;;) 
         {
-            if (edgeList->x_start >= edgesToAdd->x_start)
+            // unroll the loop a bit
+
+            if (edge_list->x_start >= edges_to_add->x_start)
             {
                 break;
             }
-            edgeList = edgeList->next;
-            if (edgeList->x_start >= edgesToAdd->x_start)
+            edge_list = edge_list->next;
+
+            if (edge_list->x_start >= edges_to_add->x_start)
             {
                 break;
             }
-            edgeList = edgeList->next;
-            if (edgeList->x_start >= edgesToAdd->x_start)
+            edge_list = edge_list->next;
+
+            if (edge_list->x_start >= edges_to_add->x_start)
             {
                 break;
             }
-            edgeList = edgeList->next;
-            if (edgeList->x_start >= edgesToAdd->x_start)
+            edge_list = edge_list->next;
+
+            if (edge_list->x_start >= edges_to_add->x_start)
             {
                 break;
             }
-            edgeList = edgeList->next;
+            edge_list = edge_list->next;
         } 
+        next_edge = edges_to_add->next;
 
-        // insert 'edgesToAdd' intween 'edgelist->prev' and 'edgelist'
-		edgesToAdd->next = edgeList;
-		edgesToAdd->prev = edgeList->prev;
-		edgeList->prev->next = edgesToAdd;
-		edgeList->prev = edgesToAdd;
+        // insert 'edges_to_add' intween 'edgelist->prev' and 'edgelist'
+		edges_to_add->next = edge_list;
+		edges_to_add->prev = edge_list->prev;
+		edge_list->prev->next = edges_to_add;
+		edge_list->prev = edges_to_add;
 
-        edgesToAdd = next_edge;
+        edges_to_add = next_edge;
     }
 }
 
@@ -1039,10 +1064,12 @@ gotposition:
     }
 }
 
-void TrailingEdge(IEdge *iedge, ISurface *isurfaces, int y, ESpan **currentSpan)
+void TrailingEdge(IEdge *iedge, ISurface *isurfaces, I32 y, ESpan **currentSpan)
 {
     ISurface *isurf = &isurfaces[iedge->isurfaceOffsets[0]];
     
+    ASSERT(isurf->spanState == 1);
+
     if (--(isurf->spanState) == 0)
     {
         /*
@@ -1055,7 +1082,7 @@ void TrailingEdge(IEdge *iedge, ISurface *isurfaces, int y, ESpan **currentSpan)
         if (isurf == isurfaces[1].next)
         {
             // emit span
-            int px = iedge->x_start >> 20;
+            I32 px = iedge->x_start >> 20;
             if (px > isurf->x_last)
             {
                 ESpan *span = *currentSpan;
@@ -1077,7 +1104,7 @@ void TrailingEdge(IEdge *iedge, ISurface *isurfaces, int y, ESpan **currentSpan)
 
 // After we iterate all iedge on the scaneline, we still need to take care of 
 // the span between the last edge and the right screen edge
-void CleanupSpan(ISurface *isurfaces, int screenEndX, int y, ESpan **currentSpan)
+void CleanupSpan(ISurface *isurfaces, I32 screenEndX, I32 y, ESpan **currentSpan)
 {
     ISurface *isurf = isurfaces[1].next;
     if (isurf->x_last < screenEndX)
@@ -1099,13 +1126,13 @@ void CleanupSpan(ISurface *isurfaces, int screenEndX, int y, ESpan **currentSpan
     } while (isurf != &isurfaces[1]);
 }
 
-void GenerateSpan(ISurface *isurfaces, int screenStartX, int screenEndX, 
-                  int scanliney, ESpan **currentSpan, IEdge *iedgeHead, IEdge *iedgeTail)
+void GenerateSpan(ISurface *isurfaces, I32 screen_start_x, I32 screen_end_x, 
+                  I32 scanliney, ESpan **currentSpan, IEdge *iedgeHead, IEdge *iedgeTail)
 {
     // clear active isurfaces
     isurfaces[1].next = &isurfaces[1];
     isurfaces[1].prev = &isurfaces[1];
-    isurfaces[1].x_last = screenStartX;
+    isurfaces[1].x_last = screen_start_x;
 
     for (IEdge *iedge = iedgeHead->next; iedge != iedgeTail; iedge = iedge->next)
     {
@@ -1119,7 +1146,7 @@ void GenerateSpan(ISurface *isurfaces, int screenStartX, int screenEndX,
         }
     }
 
-    CleanupSpan(isurfaces, screenEndX, scanliney, currentSpan);
+    CleanupSpan(isurfaces, screen_end_x, scanliney, currentSpan);
 }
 
 void RemoveEdges(IEdge *iedge)
@@ -1284,9 +1311,9 @@ void ScanEdge(Recti rect, IEdge **iedges, IEdge **removeIEdges,
     pbuffer = pbuffer + rect.y * bytesPerRow + rect.x;
     zbuffer = zbuffer + rect.y * bufferWidth + rect.x;
 
-    I32 bottomY = rect.y + rect.height - 1;
+    I32 bottom_y = rect.y + rect.height - 1;
     I32 scanliney = 0;
-    for (scanliney = rect.y; scanliney < bottomY; ++scanliney)
+    for (scanliney = rect.y; scanliney < bottom_y; ++scanliney)
     {
         // background is pre-included
         isurfaces[1].spanState = 1;
@@ -1386,7 +1413,7 @@ void EdgeDrawing(RenderData *renderdata, Camera *camera, RenderBuffer *renderbuf
 
 void SetupFrame(RenderData *renderdata, Camera *camera)
 {
-    renderdata->frameCount++;
+    renderdata->framecount++;
 
     renderdata->oldViewLeaf = renderdata->currentViewLeaf;
     renderdata->currentViewLeaf = ModelFindViewLeaf(camera->position, renderdata->worldModel);

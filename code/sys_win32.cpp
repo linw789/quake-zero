@@ -9,8 +9,10 @@
 #define GLOBAL_VARIABLE static 
 #define INTERNAL_LINKAGE static 
 
-GLOBAL_VARIABLE bool g_isRunning;
-GLOBAL_VARIABLE Win32ScreenBuffer g_screenBuffer;
+INTERNAL_LINKAGE bool g_running;
+INTERNAL_LINKAGE Win32State g_win32_state;
+INTERNAL_LINKAGE Win32ScreenBuffer g_screenBuffer;
+INTERNAL_LINKAGE GameInput g_game_input; 
 
 SYS_ERROR(Win32SysError)
 {
@@ -259,9 +261,35 @@ Win32ResizeDIBSection(Win32ScreenBuffer *screenBuffer,
     screenBuffer->memory = offscreenBuffer->memory;
 }
 
+INTERNAL_LINKAGE U32
+Win32MapKey(LPARAM lparam)
+{
+    U32 key = (lparam >> 16) & 255;
+    if (key > 127)
+    {
+        return 0;
+    }
+    key = g_scantokey[key];
+    return key;
+}
+
+INTERNAL_LINKAGE void
+Win32PostKeyEvent(U32 key, U32 is_down)
+{
+    if (key == K_ESCAPE)
+    {
+        g_running = false;
+    }
+    g_game_input.key_events[g_game_input.kevt_count].key = (U8)key;
+    g_game_input.key_events[g_game_input.kevt_count].is_down = (U8)is_down;
+    g_game_input.kevt_count++;
+}
+
 INTERNAL_LINKAGE void 
 Win32ProcessPendingMessages()
 {
+    g_game_input.kevt_count = 0;
+
     MSG msg;
     while (PeekMessage(&msg, 0, 0, 0, PM_REMOVE))
     {
@@ -269,63 +297,18 @@ Win32ProcessPendingMessages()
         {
             case WM_QUIT:
             {
-                g_isRunning = false;
+                g_running = false;
             } break;
 
-            case WM_SYSKEYDOWN:
             case WM_SYSKEYUP:
-            case WM_KEYDOWN:
             case WM_KEYUP:
             {
-                U32 VKCode = (U32)msg.wParam;
-                bool wasDown = (msg.lParam & (1 << 30)) != 0;
-                bool isDown = (msg.lParam & (1 << 31)) == 0;
-                // we do not differentiate the time of keys being holding down, 
-                // only record transition
-                if (wasDown != isDown)
-                {
-                    if (VKCode == 'W')
-                    {
-                    }
-                    else if (VKCode == 'A')
-                    {
-                    }
-                    else if (VKCode == 'S')
-                    {
-                    }
-                    else if (VKCode == 'D')
-                    {
-                    }
-                    else if (VKCode == 'I')
-                    {
-                    }
-                    else if (VKCode == 'K')
-                    {
-                    }
-                    else if (VKCode == 'J')
-                    {
-                    }
-                    else if (VKCode == 'L')
-                    {
-                    }
-
-                    if (isDown)
-                    {
-                        I32 altKeyIsDown = (msg.lParam & (1 << 29));
-                        if (VKCode == VK_F4 && altKeyIsDown)
-                        {
-                            g_isRunning = false;
-                        }
-
-                        if (VKCode == VK_RETURN && altKeyIsDown)
-                        {
-                            if (msg.hwnd)
-                            {
-                                // Win32ToggleFullScreen(msg.hwnd);
-                            }
-                        }
-                    }
-                }
+                Win32PostKeyEvent(Win32MapKey(msg.lParam), 0);
+            } break;
+            case WM_SYSKEYDOWN:
+            case WM_KEYDOWN:
+            {
+                Win32PostKeyEvent(Win32MapKey(msg.lParam), 1);
             } break;
 
             default:
@@ -334,6 +317,29 @@ Win32ProcessPendingMessages()
                 DispatchMessage(&msg);
             }
         }
+    }
+}
+
+INTERNAL_LINKAGE void
+Win32ProcessMouseMove(Win32State *wstate, GameInput *input)
+{
+    if (wstate->has_focus)
+    {
+        POINT mouse_point = {0};
+        GetCursorPos(&mouse_point);
+
+        I32 window_center_x = (wstate->window_size.left + wstate->window_size.right) / 2;
+        I32 window_center_y = (wstate->window_size.top + wstate->window_size.bottom) / 2;
+
+        input->mouse.delta_x = mouse_point.x - window_center_x;
+        input->mouse.delta_y = mouse_point.y - window_center_y;
+
+        SetCursorPos(window_center_x, window_center_y);
+    }
+    else
+    {
+        input->mouse.delta_x = 0;
+        input->mouse.delta_y = 0;
     }
 }
 
@@ -346,7 +352,7 @@ Win32MainWindowCallback(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
    {
       case WM_CLOSE:
       {
-         g_isRunning = false;
+         g_running = false;
       } break;
 
       case WM_ACTIVATEAPP:
@@ -354,9 +360,36 @@ Win32MainWindowCallback(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
          // TODO
       } break;
 
+      case WM_SIZE:
+      {
+          switch (wParam)
+          {
+              case SIZE_MINIMIZED:
+              {
+                  g_win32_state.has_focus = 1;
+
+              } break;
+
+              case SIZE_MAXIMIZED:
+              {
+                  g_win32_state.has_focus = 0;
+              } break; 
+          }
+      } break;
+
+      case WM_SETFOCUS:
+      {
+          g_win32_state.has_focus = 1;
+      } break;
+
+      case WM_KILLFOCUS:
+      {
+          g_win32_state.has_focus = 0;
+      } break;
+
       case WM_DESTROY:
       {
-         g_isRunning = false;
+         g_running = false;
       } break;
 
       case WM_SETCURSOR:
@@ -416,14 +449,14 @@ WinMain(HINSTANCE instance, HINSTANCE preInstance, LPSTR cmdline, int showCode)
     windowClass.hCursor = LoadCursor(0, IDC_ARROW);
     // windowClass.hbrBackground;
     // windowClass.lpszMenuName;
-    windowClass.lpszClassName = "Quake Remake";
+    windowClass.lpszClassName = "Quake Zero";
 
     HWND hwnd;
     if (RegisterClassA(&windowClass))
     {
        hwnd = CreateWindowExA(0,
                               windowClass.lpszClassName,
-                              "Quake Remake",
+                              "Quake Zero",
                               WS_OVERLAPPEDWINDOW,
                               CW_USEDEFAULT,
                               CW_USEDEFAULT,
@@ -473,19 +506,18 @@ WinMain(HINSTANCE instance, HINSTANCE preInstance, LPSTR cmdline, int showCode)
     }
 
 
-    Win32State win32State = { };
-    Win32GetExeFileName(&win32State);
+    Win32GetExeFileName(&g_win32_state);
 
     char sourceGameDLLPath[WIN32_MAX_FILE_PATH_LENGTH];
-    Win32BuildGameFilePath(&win32State, "q_game.dll", 
+    Win32BuildGameFilePath(&g_win32_state, "q_game.dll", 
             sourceGameDLLPath, sizeof(sourceGameDLLPath));
 
     char tempGameDLLPath[WIN32_MAX_FILE_PATH_LENGTH];
-    Win32BuildGameFilePath(&win32State, "q_temp_game.dll", 
+    Win32BuildGameFilePath(&g_win32_state, "q_temp_game.dll", 
             tempGameDLLPath, sizeof(tempGameDLLPath));
 
     char gameCodeLockPath[WIN32_MAX_FILE_PATH_LENGTH];
-    Win32BuildGameFilePath(&win32State, "lock.tmp",
+    Win32BuildGameFilePath(&g_win32_state, "lock.tmp",
             gameCodeLockPath, sizeof(gameCodeLockPath));
 
     GameMemory gameMemory = {};
@@ -496,7 +528,7 @@ WinMain(HINSTANCE instance, HINSTANCE preInstance, LPSTR cmdline, int showCode)
     gameMemory.platformAPI.SysError = Win32SysError;
     gameMemory.platformAPI.SysSetPalette = Win32SetPalette;
 
-    Win32BuildGameFilePath(&win32State, "..\\assets\\", 
+    Win32BuildGameFilePath(&g_win32_state, "..\\assets\\", 
             gameMemory.gameAssetDir, sizeof(gameMemory.gameAssetDir));
 
     Win32GameCode gameCode = Win32LoadGameCode(sourceGameDLLPath,
@@ -527,8 +559,8 @@ WinMain(HINSTANCE instance, HINSTANCE preInstance, LPSTR cmdline, int showCode)
         int top = (rect.bottom - g_screenBuffer.height) / 2;
         rect.left = left;
         rect.top = top;
-        rect.right = g_screenBuffer.width + rect.left;
-        rect.bottom = g_screenBuffer.height + rect.top;
+        rect.right = g_screenBuffer.width + rect.left - 1;
+        rect.bottom = g_screenBuffer.height + rect.top - 1;
         AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, FALSE);
         // TODO lw: We could make the window resizable, because the frame buffer
         // and the z-buffer are allocated at high hunk. Resize them won't affect
@@ -536,17 +568,42 @@ WinMain(HINSTANCE instance, HINSTANCE preInstance, LPSTR cmdline, int showCode)
         SetWindowPos(hwnd, HWND_TOP, rect.left, rect.top, 
                      rect.right - rect.left, rect.bottom - rect.top, 
                      SWP_SHOWWINDOW);
+
+        RECT window_rect = {0};
+
+        GetClientRect(hwnd, &rect);
+        POINT point = {0};
+        ClientToScreen(hwnd, &point);
+
+        window_rect.left = point.x;
+        window_rect.top = point.y;
+
+        point = {rect.right, rect.bottom};
+        ClientToScreen(hwnd, &point);
+
+        window_rect.right = point.x;
+        window_rect.bottom = point.y;
+
+        ShowCursor(FALSE);
+        ClipCursor(&window_rect);
+        SetCursorPos((window_rect.left + window_rect.right) / 2,
+                     (window_rect.top + window_rect.bottom) / 2);
+
+        g_win32_state.window_size = window_rect;
     }
 
-    g_isRunning = true;
-    while (g_isRunning)
+    g_win32_state.has_focus = 1;
+
+    g_running = true;
+    while (g_running)
     {
         Win32ProcessPendingMessages();
+        Win32ProcessMouseMove(&g_win32_state, &g_game_input);
 
         U64 counter = Win32GetWallClock();
         float secondsElapsed = Win32GetSecondsElapsed(startCounter, counter, counterFrequency);
 
-        gameCode.GameUpdateAndRender(&gameInput[0]);
+        gameCode.GameUpdateAndRender(&g_game_input);
 
 #ifdef QUAKEREMAKE_INTERNAL
 

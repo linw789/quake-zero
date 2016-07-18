@@ -95,12 +95,68 @@ struct GameSoundOutputBuffer
     I16 *samples;
 };
 
+//
+// these are the key numbers that should be passed to Key_Event
+//
+#define	K_TAB			9
+#define	K_ENTER			13
+#define	K_ESCAPE		27
+#define	K_SPACE			32
+
+// normal keys should be passed as lowercased ascii
+
+#define	K_BACKSPACE		127
+#define	K_UPARROW		128
+#define	K_DOWNARROW		129
+#define	K_LEFTARROW		130
+#define	K_RIGHTARROW	131
+
+#define	K_ALT			132
+#define	K_CTRL			133
+#define	K_SHIFT			134
+#define	K_F1			135
+#define	K_F2			136
+#define	K_F3			137
+#define	K_F4			138
+#define	K_F5			139
+#define	K_F6			140
+#define	K_F7			141
+#define	K_F8			142
+#define	K_F9			143
+#define	K_F10			144
+#define	K_F11			145
+#define	K_F12			146
+#define	K_INS			147
+#define	K_DEL			148
+#define	K_PGDN			149
+#define	K_PGUP			150
+#define	K_HOME			151
+#define	K_END			152
+
+#define K_PAUSE			255
+
+struct KeyState
+{
+    U32 key : 8;
+    U32 is_down: 8;
+};
+
+struct MouseState
+{
+    I32 delta_x;
+    I32 delta_y;
+};
+
 //     |  player makes input  |   we process input  |   inputs take effect
 //  frame0                  frame1                frame2
 //  so, input is always one frame behind
 struct GameInput
 {
-    I32 keydown[256];
+    // bits 0-8: key code, bits 9-15: 1 is key down, 0 is key up
+    KeyState key_events[32];
+    I32 kevt_count;
+
+    MouseState mouse;
 };
 
 #define SYS_ERROR(name) void name(char *format, ...)
@@ -135,7 +191,7 @@ typedef GAME_INIT(GameInit_t);
 GAME_INIT(GameInit_stub) { }
 
 #define GAME_UPDATE_AND_RENDER(name) \
-    void name(GameInput *gameInput)
+    void name(GameInput *game_input)
 
 typedef GAME_UPDATE_AND_RENDER(GameUpdateAndRender_t);
 

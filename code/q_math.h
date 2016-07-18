@@ -85,6 +85,20 @@ struct Vec3f
         return ((float *)this)[index];
     }
 
+    void operator+=(const Vec3f &rhv)
+    {
+        x += rhv.x;
+        y += rhv.y;
+        z += rhv.z;
+    }
+
+    void operator-=(const Vec3f &rhv)
+    {
+        x -= rhv.x;
+        y -= rhv.y;
+        z -= rhv.z;
+    }
+
     union
     {
         struct {float x, y, z;};
@@ -124,6 +138,12 @@ inline Vec3f Vec3Normalize(const Vec3f &v)
 {
     float invlen = InvSquareRoot(Vec3Dot(v, v));
     Vec3f result = {v.x * invlen, v.y * invlen, v.z * invlen};
+    return result;
+}
+
+B32 operator==(const Vec3f &lhv, const Vec3f &rhv)
+{
+    B32 result = (lhv.x == rhv.x && lhv.y == rhv.y && lhv.z == rhv.z);
     return result;
 }
 
@@ -211,14 +231,13 @@ void AngleVectors(Vec3f angles, Vec3f *vx, Vec3f *vy, Vec3f *vz)
     float sinz = Sine(radian);
     float cosz = Cosine(radian);
 
-    // rotation matrix = (rotation matrix around z) * (around y) * (around x)
-    vx->x = -sinz * sinx * cosy + cosz * siny;
-    vx->y = -sinz * sinx * siny + cosz * cosy;
-    vx->z = -sinz * cosx;
-    vy->x = cosx * cosy;
-    vy->y = cosx * siny;
-    vy->z = -sinx;
-    vz->x = cosz * sinx * cosy + sinz * siny;
-    vz->y = cosz * sinx * siny - sinz * cosy;
-    vz->z = cosz * cosx;
+    /*
+     Simple trigonometry could be used to build rotation matrices around the X, 
+     Y, Z axes in world space. And since we are always rotating around the world  
+     Z axis, we could rotate around the local x axis first which is coincident 
+     with world x axis initially, then rotate around world axis.
+    */
+    *vx = {cosz, -sinz, 0};
+    *vy = {sinz * cosx, cosz * cosx, sinx};
+    *vz = {-sinz * sinx, -cosz * sinx, cosx};
 }

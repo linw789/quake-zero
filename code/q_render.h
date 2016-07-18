@@ -92,6 +92,8 @@ struct IEdge
     IEdge *nextRemove;
     Edge *owner;
 
+    I32 y_start;
+    I32 y_bottom;
     fixed20 x_start; // in screen space
     fixed20 x_step;
     // isurfaceOffsets[0] is set for trailing(right) edge, 
@@ -149,7 +151,7 @@ struct RenderData
 
     I32 currentKey;
 
-    I32 frameCount;
+    I32 framecount;
     I32 updateCountPVS;
 
     I32 outOfIEdges;

@@ -27,7 +27,7 @@ struct Vertex
 struct Edge
 {
     U16 vertIndex[2];
-    U32 cachedIEdgeOffset;
+    U32 iedge_cache_state;
 };
 
 struct Texture
