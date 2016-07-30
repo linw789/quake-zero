@@ -32,24 +32,24 @@ struct Recti
 
 struct Camera
 {
-    Vec2f screenCenter;
-    Vec2f screenMin;
-    Vec2f screenMax;
+    Vec2f screen_center;
+    Vec2f screen_clamp_min;
+    Vec2f screen_clamp_max;
 
-    float nearZ;
+    float near_z;
     // float farZ;
     // float half_fovy; // half of field of view in y axis, in redian
     // float aspect; // width / height
 
     /*
-    x_w / scaleZ = tan(fovx * 0.5); 
-    x_w equals the width of the screen and scaleZ is the corresponding z value.
-    x_s / x_v = scaleZ / z_v => x_s = scaleZ / z_v * x_v
+    x_w / scale_z = tan(fovx * 0.5); 
+    x_w equals the width of the screen and scale_z is the corresponding z value.
+    x_s / x_v = scaleZ / z_v => x_s = scale_z / z_v * x_v
     x_v and z_v are the values in view space, x_s is the projected value of x_v
     on the plane whose width is x_w, essentially x_s is the value in screen space.
     */
-    float scaleZ;
-    float scaleInvZ;
+    float scale_z;
+    float scale_invz;
 
     Vec3f position; // in world space
     Vec3f angles;
@@ -92,10 +92,8 @@ struct IEdge
     IEdge *nextRemove;
     Edge *owner;
 
-    I32 y_start;
-    I32 y_bottom;
-    fixed20 x_start; // in screen space
-    fixed20 x_step;
+    Fixed20 x_start; // in screen space
+    Fixed20 x_step;
     // isurfaceOffsets[0] is set for trailing(right) edge, 
     // isurfaceOffsets[1] is set for leading(left) edge
     U32 isurfaceOffsets[2];
@@ -120,13 +118,14 @@ struct ISurface
     // safe guard to ensure that trailing edge only comes after leading edge
     I32 spanState;
     I32 flags;
-    float nearestInvZ;
-    B32 isInSubmodel;
+    float nearest_invz;
+    B32 in_submodel;
     // used for calculating 1/z in screen space
     float zi_stepx, zi_stepy, zi_d;
 };
 
 #define MAX_PIXEL_HEIGHT 1024
+#define MIP_NUM 4
 
 // imtermediate data for drawing
 struct RenderData
@@ -147,7 +146,7 @@ struct RenderData
 
     Model *worldModel;
 
-    float nearestInvZ; // for surface
+    float nearest_invz; // for surface
 
     I32 currentKey;
 
@@ -156,4 +155,7 @@ struct RenderData
 
     I32 outOfIEdges;
     I32 surfaceCount;
+
+    float scaled_mip[MIP_NUM - 1];
+    I32 mip_min;
 };

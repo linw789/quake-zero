@@ -325,44 +325,45 @@ ModelLoadTextureInfo(Model *model, U8 *base, Lump lump)
     }
     
     int count = lump.length / sizeof(*texInfoDisk);
-    TextureInfo *texInfo = NULL;
-    texInfo = (TextureInfo *)HunkLowAlloc(count * sizeof(*texInfo), model->name);
+    TextureInfo *tex_info = NULL;
+    tex_info = (TextureInfo *)HunkLowAlloc(count * sizeof(*tex_info), model->name);
 
     model->numTexInfo = count;
-    model->texInfo = texInfo;
+    model->tex_info = tex_info;
 
-    for (int i = 0; i < count; ++i, ++texInfoDisk, ++texInfo)
+    for (int i = 0; i < count; ++i, ++texInfoDisk, ++tex_info)
     {
-        MemCpy(texInfo, texInfoDisk, 8 * sizeof(float));
+        MemCpy(tex_info, texInfoDisk, 8 * sizeof(float));
 
-        float uLength = Vec3Length(texInfo->uAxis);
-        float vLength = Vec3Length(texInfo->vAxis);
-        float length = (uLength + vLength) / 2.0f;
+        float u_length = Vec3Length(tex_info->u_axis);
+        float v_length = Vec3Length(tex_info->v_axis);
+        float length = (u_length + v_length) / 2.0f;
         
         // decide the mipmap level
+        // TODO lw: why use length as as reference
         if (length < 0.32f)
         {
-            texInfo->mipAdjust = 4;
+            tex_info->mip_adjust = 4;
         }
         else if (length < 0.49f)
         {
-            texInfo->mipAdjust = 3;
+            tex_info->mip_adjust = 3;
         }
         else if (length < 0.99f)
         {
-            texInfo->mipAdjust = 2;
+            tex_info->mip_adjust = 2;
         }
         else
         {
-            texInfo->mipAdjust = 1;
+            tex_info->mip_adjust = 1;
         }
          
-        texInfo->flags = texInfoDisk->flags;
+        tex_info->flags = texInfoDisk->flags;
 
         if (!model->textures)
         {
-            texInfo->texture = g_defaultTexture; 
-            texInfo->flags = 0;
+            tex_info->texture = g_defaultTexture; 
+            tex_info->flags = 0;
         }
         else
         {
@@ -371,11 +372,11 @@ ModelLoadTextureInfo(Model *model, U8 *base, Lump lump)
                 g_platformAPI.SysError("mip texture index too big");
             }
 
-            texInfo->texture = model->textures[texInfoDisk->mipTexIndex];
-            if (!texInfo->texture)
+            tex_info->texture = model->textures[texInfoDisk->mipTexIndex];
+            if (!tex_info->texture)
             {
-                texInfo->texture = g_defaultTexture;
-                texInfo->flags = 0;
+                tex_info->texture = g_defaultTexture;
+                tex_info->flags = 0;
             }
         }
     }
@@ -401,8 +402,8 @@ CalcTexCoordExtents(Model *model, Surface *surface)
             vert = model->vertices[model->edges[-edgeIndex].vertIndex[1]];
         }
 
-        float u = Vec3Dot(surface->texInfo->uAxis, vert.position) + surface->texInfo->uOffset;
-        float v = Vec3Dot(surface->texInfo->vAxis, vert.position) + surface->texInfo->vOffset;
+        float u = Vec3Dot(surface->tex_info->u_axis, vert.position) + surface->tex_info->u_offset;
+        float v = Vec3Dot(surface->tex_info->v_axis, vert.position) + surface->tex_info->v_offset;
 
         if (u < min.u)
         {
@@ -430,12 +431,12 @@ CalcTexCoordExtents(Model *model, Surface *surface)
         bmins[i] = (int)floor(min[i] / 16);
         bmaxs[i] = (int)ceil(max[i] / 16);
         
-        surface->texCoordMin[i] = (I16)(bmins[i] * 16);
-        surface->texCoordExtents[i] = (I16)((bmaxs[i] - bmins[i]) * 16);
+        surface->uv_min[i] = (I16)(bmins[i] * 16);
+        surface->uv_extents[i] = (I16)((bmaxs[i] - bmins[i]) * 16);
             
-        if (!(surface->texInfo->flags & TEX_SPECIAL) && surface->texCoordExtents[i] > 256)
+        if (!(surface->tex_info->flags & TEX_SPECIAL) && surface->uv_extents[i] > 256)
         {
-            g_platformAPI.SysError("bad surface texCoordExtents");
+            g_platformAPI.SysError("bad surface uv_extents");
         }
     }
 }
@@ -469,7 +470,7 @@ ModelLoadFaces(Model *model, U8 *base, Lump lump)
         }
 
         surface->plane = model->planes + faceDisk->planeOffset;
-        surface->texInfo = model->texInfo + faceDisk->texInfoOffset;
+        surface->tex_info = model->tex_info + faceDisk->texInfoOffset;
 
         CalcTexCoordExtents(model, surface);
 
@@ -490,17 +491,17 @@ ModelLoadFaces(Model *model, U8 *base, Lump lump)
         }
 
         // set drawing flags
-        if (!StringNCompare(surface->texInfo->texture->name, "sky", 3))
+        if (StringNCompare(surface->tex_info->texture->name, "sky", 3) == 0)
         {
             surface->flags |= SURF_DRAW_SKY | SURF_DRAW_TILED;
         }
-        else if (!StringNCompare(surface->texInfo->texture->name, "*", 1))
+        else if (StringNCompare(surface->tex_info->texture->name, "*", 1) == 0)
         {
             surface->flags |= SURF_DRAW_TURB | SURF_DRAW_TILED;
             for (int j = 0; j < 2; ++j)
             {
-                surface->texCoordMin[j] = 16384;
-                surface->texCoordExtents[j] = -8192;
+                surface->uv_min[j] = 16384;
+                surface->uv_extents[j] = -8192;
             }
         }
     }

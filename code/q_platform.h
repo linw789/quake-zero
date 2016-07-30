@@ -13,8 +13,8 @@ typedef uint16_t U16;
 typedef uint32_t U32;
 typedef uint64_t U64;
 
-typedef I32 fixed16; // 16 bits for mantissa
-typedef I32 fixed20; // 20 bits for mantissa
+typedef I32 Fixed16; // 16 bits for mantissa
+typedef I32 Fixed20; // 20 bits for mantissa
 
 #define INTERNAL_LINKAGE static
 
@@ -33,16 +33,28 @@ typedef I32 fixed20; // 20 bits for mantissa
 #define GIGA_BYTES(val) (MEGA_BYTES(val) * 1024LL)
 #define TERA_BYTES(val) (GIGA_BYTES(val) * 1024LL)
 
-inline fixed20 FloatToFixed20(float v)
+inline Fixed20 FloatToFixed20(float v)
 {
     // 0x100000 = 2^20
-    fixed20 result = (I32)(v * 0x100000);
+    Fixed20 result = (I32)(v * 0x100000);
     return result;
 }
 
-inline float Fixed20ToFloat(fixed20 f)
+inline float Fixed20ToFloat(Fixed20 f)
 {
     float r = (float)f / 0x100000;
+    return r;
+}
+
+inline Fixed16 FloatToFixed16(float v)
+{
+    Fixed16 r = (I32)(v * 0x10000);
+    return r;
+}
+
+inline float Fixed16ToFloat(Fixed16 v)
+{
+    float r = (float)v / 0x10000;
     return r;
 }
 

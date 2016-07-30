@@ -38,25 +38,30 @@
 // for data alignment on function stack
 #define CACHE_SIZE 64
 
+// TODO lw: why these numbers, empirical?
+float g_base_mip[MIP_NUM - 1] = {1.0f, 0.5f * 0.8f, 0.25f * 0.8f};
+
 Camera g_camera;
 
-void ResetCamera(Camera *camera, Recti screenRect, float fovx)
+void ResetCamera(Camera *camera, Recti screen_rect, float fovx)
 {
     // Subtracting 0.5f to make center.x sits between pixels if screen width is 
     // an even number, on the center pixel if an odd number.
-    camera->screenCenter.x = screenRect.x + screenRect.width / 2.0f - 0.5f;
-    camera->screenCenter.y = screenRect.y + screenRect.height / 2.0f - 0.5f;
+    camera->screen_center.x = screen_rect.x + screen_rect.width / 2.0f - 0.5f;
+    camera->screen_center.y = screen_rect.y + screen_rect.height / 2.0f - 0.5f;
 
-    camera->screenMin.x = screenRect.x - 0.5f;
-    camera->screenMin.y = screenRect.y - 0.5f;
-    camera->screenMax.x = screenRect.x + screenRect.width - 0.5f;
-    camera->screenMax.y = screenRect.y + screenRect.height - 0.5f;
+    camera->screen_clamp_min.x = screen_rect.x - 0.5f;
+    camera->screen_clamp_min.y = screen_rect.y - 0.5f;
+    camera->screen_clamp_max.x = screen_rect.x + screen_rect.width - 0.5f;
+    camera->screen_clamp_max.y = screen_rect.y + screen_rect.height - 0.5f;
+
+    camera->near_z = 0.01f;
 
     float tanx = Tangent(DegreeToRadian(fovx * 0.5f));
-    camera->scaleZ = screenRect.width * 0.5f / tanx;
-    camera->scaleInvZ = 1.0f / camera->scaleZ;
+    camera->scale_z = screen_rect.width * 0.5f / tanx;
+    camera->scale_invz = 1.0f / camera->scale_z;
 
-    float invAspect = (float)(screenRect.height) / (float)(screenRect.width);
+    float invAspect = (float)(screen_rect.height) / (float)(screen_rect.width);
     float tany = tanx * invAspect;
 
     // left side frustum clip
@@ -275,11 +280,6 @@ EmitIEdgeResult EmitIEdge(Vec3f v0, Vec3f v1, B32 onlyNearInvZ, U32 *iedge_cache
     // clip the edge against the frustum planes in world space
     //
 
-    if (renderdata->currentIEdge - renderdata->iedges == 104)
-    {
-        I32 a = 104;
-    }
-
     EmitIEdgeResult result = {0};
 
     while (clip_plane != NULL)
@@ -295,18 +295,17 @@ EmitIEdgeResult EmitIEdge(Vec3f v0, Vec3f v1, B32 onlyNearInvZ, U32 *iedge_cache
                 *iedge_cache_state = EDGE_PARTIALLY_CLIPPED;
 
                 float t = d0 / (d0 - d1);
-                Vec3f newPoint = v0 + t * (v1 - v0);
+                v1 = v0 + t * (v1 - v0);
 
-                v1 = newPoint;
                 if (clip_plane->leftEdge)
                 {
                     result.left_edge_clipped = 1;
-                    scr->left_exit_vert = newPoint;
+                    scr->left_exit_vert = v1;
                 }
                 else if (clip_plane->rightEdge)
                 {
                     result.right_edge_clipped = 1;
-                    scr->right_exit_vert = newPoint;
+                    scr->right_exit_vert = v1;
                 }
             }
             else
@@ -335,24 +334,38 @@ EmitIEdgeResult EmitIEdge(Vec3f v0, Vec3f v1, B32 onlyNearInvZ, U32 *iedge_cache
                 *iedge_cache_state = EDGE_PARTIALLY_CLIPPED;
 
                 float t = d0 / (d0 - d1);
-                Vec3f newPoint = v0 + t * (v1 - v0);
+                v0 = v0 + t * (v1 - v0);
 
-                v0 = newPoint;
                 if (clip_plane->leftEdge)
                 {
                     result.left_edge_clipped = 1;
-                    scr->left_enter_vert = newPoint;
+                    scr->left_enter_vert = v0;
                 }
                 else if (clip_plane->rightEdge)
                 {
                     result.right_edge_clipped = 1;
-                    scr->right_enter_vert = newPoint;
+                    scr->right_enter_vert = v0;
                 }
             }
         }
 
         clip_plane = clip_plane->next;
     }
+#if 0
+    for (I32 i = 0; i < 4; ++i)
+    {
+        float dd0 = Vec3Dot(v0, camera->worldFrustumPlanes[i].normal) - camera->worldFrustumPlanes[i].distance;
+        float dd1 = Vec3Dot(v1, camera->worldFrustumPlanes[i].normal) - camera->worldFrustumPlanes[i].distance;
+        if (dd0 < 0.0f || dd1 < 0.0f)
+        {
+            I32 test = 0;
+        }
+    }
+    Vec3f debug_point0 = TransformPointToView(camera, v0);
+    ASSERT(debug_point0.z > -0.01f);
+    Vec3f debug_point1 = TransformPointToView(camera, v1);
+    ASSERT(debug_point1.z > -0.01f);
+#endif
 
     // 
     // emit iedge
@@ -382,21 +395,21 @@ EmitIEdgeResult EmitIEdge(Vec3f v0, Vec3f v1, B32 onlyNearInvZ, U32 *iedge_cache
             }
         }
 
-        if (view_vert0.z < camera->nearZ)
+        if (view_vert0.z < camera->near_z)
         {
-            view_vert0.z = camera->nearZ;
+            view_vert0.z = camera->near_z;
         }
 
         view_invz0 = 1.0f / view_vert0.z;
-        float scale = camera->scaleZ * view_invz0;
-        screen_x0 = camera->screenCenter.x + scale * view_vert0.x;
-        screen_y0 = camera->screenCenter.y - scale * view_vert0.y;
+        float scale = camera->scale_z * view_invz0;
+        screen_x0 = camera->screen_center.x + scale * view_vert0.x;
+        screen_y0 = camera->screen_center.y - scale * view_vert0.y;
 
-        ASSERT(screen_y0 > (camera->screenMin.y - 0.5f) 
-               && screen_y0 < (camera->screenMax.y + 0.5f));
+        //ASSERT(screen_y0 > (camera->screen_clamp_min.y - 0.5f) 
+               //&& screen_y0 < (camera->screen_clamp_max.y + 0.5f));
 
-        screen_x0 = Clamp(camera->screenMin.x, camera->screenMax.x, screen_x0);
-        screen_y0 = Clamp(camera->screenMin.y, camera->screenMax.y, screen_y0);
+        screen_x0 = Clamp(camera->screen_clamp_min.x, camera->screen_clamp_max.x, screen_x0);
+        screen_y0 = Clamp(camera->screen_clamp_min.y, camera->screen_clamp_max.y, screen_y0);
 
         ceil_screen_y0 = (I32)ceilf(screen_y0);
     }
@@ -412,22 +425,23 @@ EmitIEdgeResult EmitIEdge(Vec3f v0, Vec3f v1, B32 onlyNearInvZ, U32 *iedge_cache
     }
 
     // TODO lw: why this works?
-    if (view_vert1.z < camera->nearZ)
+    if (view_vert1.z < camera->near_z)
     {
-        view_vert1.z = camera->nearZ;
+        view_vert1.z = camera->near_z;
     }
 
     view_invz1 = 1.0f / view_vert1.z;
-    float scale = camera->scaleZ * view_invz1;
-    screen_x1 = camera->screenCenter.x + scale * view_vert1.x;
-    screen_y1 = camera->screenCenter.y - scale * view_vert1.y;
+    float scale = camera->scale_z * view_invz1;
+    screen_x1 = camera->screen_center.x + scale * view_vert1.x;
+    screen_y1 = camera->screen_center.y - scale * view_vert1.y;
 
-    ASSERT(screen_y1 > (camera->screenMin.y - 0.5f)
-           && screen_y1 < (camera->screenMax.y + 0.5f));
+    //ASSERT(screen_y1 > (camera->screen_clamp_min.y - 0.5f)
+           //&& screen_y1 < (camera->screen_clamp_max.y + 0.5f));
 
-    screen_x1 = Clamp(camera->screenMin.x, camera->screenMax.x, screen_x1);
-    screen_y1 = Clamp(camera->screenMin.y, camera->screenMax.y, screen_y1);
+    screen_x1 = Clamp(camera->screen_clamp_min.x, camera->screen_clamp_max.x, screen_x1);
+    screen_y1 = Clamp(camera->screen_clamp_min.y, camera->screen_clamp_max.y, screen_y1);
 
+    // TODO lw: explain why ceiling?
     ceil_screen_y1 = (I32)ceilf(screen_y1);
 
     // find minimum z value
@@ -435,9 +449,9 @@ EmitIEdgeResult EmitIEdge(Vec3f v0, Vec3f v1, B32 onlyNearInvZ, U32 *iedge_cache
     {
         view_invz0 = view_invz1;
     }
-    if (view_invz0 > renderdata->nearestInvZ) 
+    if (view_invz0 > renderdata->nearest_invz) 
     {
-        renderdata->nearestInvZ = view_invz0;
+        renderdata->nearest_invz = view_invz0;
     }
 
     // backup v1 data for reuse
@@ -505,7 +519,7 @@ EmitIEdgeResult EmitIEdge(Vec3f v0, Vec3f v1, B32 onlyNearInvZ, U32 *iedge_cache
     // clamping edge->x_start
 
     // sort the iedge in ascending order of x value
-    fixed20 x_check = iedge->x_start;
+    Fixed20 x_check = iedge->x_start;
     // trailing edge
     if (iedge->isurfaceOffsets[0])
     {   
@@ -555,16 +569,16 @@ U32 ReEmitIEdge(Edge *edge, RenderData *renderdata)
             (U32)(renderdata->currentISurface - renderdata->isurfaces);
     }
 
-    if (iedge->nearInvZ > renderdata->nearestInvZ)
+    if (iedge->nearInvZ > renderdata->nearest_invz)
     {
-        renderdata->nearestInvZ = iedge->nearInvZ;
+        renderdata->nearest_invz = iedge->nearInvZ;
     }
 
     return 1;
 }
 
 void RenderFace(Surface *surface, RenderData *renderdata, Camera *camera, 
-                B32 isInSubmodel, I32 clipflag)
+                B32 in_submodel, I32 clipflag)
 {
     // no more surface
     if (renderdata->currentISurface >= renderdata->endISurface)
@@ -600,7 +614,7 @@ void RenderFace(Surface *surface, RenderData *renderdata, Camera *camera,
     EmitIEdgeResult emit_result = {0};
     SurfaceClipResult scr = {0};
     LastVertex last_vert = {0};
-    renderdata->nearestInvZ = 0;
+    renderdata->nearest_invz = 0;
 
     // A surface is convex, so one clip plane will at most generate one pair of 
     // enter and exit clip points
@@ -620,7 +634,7 @@ void RenderFace(Surface *surface, RenderData *renderdata, Camera *camera,
         // get the edge
         Edge *edge = edges + edge_index;
 
-        if (isInSubmodel == false)
+        if (in_submodel == false)
         {
             if (edge->iedge_cache_state & EDGE_FULLY_CLIPPED)
             {
@@ -698,9 +712,9 @@ void RenderFace(Surface *surface, RenderData *renderdata, Camera *camera,
     ISurface *isurface = renderdata->currentISurface;
 
     isurface->data = (void *)surface;
-    isurface->nearestInvZ = renderdata->nearestInvZ;
+    isurface->nearest_invz = renderdata->nearest_invz;
     isurface->flags = surface->flags;
-    isurface->isInSubmodel = isInSubmodel;
+    isurface->in_submodel = in_submodel;
     isurface->spanState = 0;
     // isurface->entity = ;
     isurface->key = renderdata->currentKey++;
@@ -715,7 +729,7 @@ void RenderFace(Surface *surface, RenderData *renderdata, Camera *camera,
     distance_world = (Q - O) * N  and distance_view = (Q - P) * N
     distance_view = ((Q - O) - (P - O)) * N = distance_world - (P - O) * N
     */
-    float distanceInv = 1.0f / (surface->plane->distance - Vec3Dot(camera->position, surface->plane->normal));
+    float inv_dist = 1.0f / (surface->plane->distance - Vec3Dot(camera->position, surface->plane->normal));
 
     /* wl:
 	Instead of calculating 1/z by interpolating between edges,
@@ -733,11 +747,13 @@ void RenderFace(Surface *surface, RenderData *renderdata, Camera *camera,
 	however, screen space has the origin at top-left corner. There is some
 	translation work needs to be done.
 	*/
-    isurface->zi_stepx = normal_view.x * camera->scaleInvZ * distanceInv;
-    isurface->zi_stepy = normal_view.y * camera->scaleInvZ * distanceInv;
-    isurface->zi_d = normal_view.z * distanceInv
-                   - camera->screenCenter.x * isurface->zi_stepx
-                   - camera->screenCenter.y * isurface->zi_stepy;
+    isurface->zi_stepx = normal_view.x * camera->scale_invz * inv_dist;
+    // y axis is pointing up in view space
+    isurface->zi_stepy = -normal_view.y * camera->scale_invz * inv_dist;
+    // move to top-left corner
+    isurface->zi_d = normal_view.z * inv_dist
+                   - camera->screen_center.x * isurface->zi_stepx
+                   - camera->screen_center.y * isurface->zi_stepy;
 
     renderdata->currentISurface++;
 }
@@ -961,13 +977,13 @@ void LeadingEdge(IEdge *iedge, ISurface *isurfaces, int y, ESpan **currentSpan)
     // get the isurface this iedge belongs to
     ISurface *isurf = &isurfaces[iedge->isurfaceOffsets[1]];
 
-    ASSERT(isurf->spanState == 0);
+    //ASSERT(isurf->spanState == 0);
 
     // '->' has higher precedence than '++a', add parenthesis anyway
     if (++(isurf->spanState) == 1)
     {
         /*
-        if (surf->isInSubmodel)
+        if (surf->in_submodel)
         {
             r_submodelactive++;
         }
@@ -983,7 +999,7 @@ void LeadingEdge(IEdge *iedge, ISurface *isurfaces, int y, ESpan **currentSpan)
         // If 2 isurfaces are on the same plane, the one that's already active
         // is in front. But if isurf is in submodel, we compare their z value to
         // decide if isurf is in front.
-        if ((isurf->key == topISurf->key) && isurf->isInSubmodel )
+        if ((isurf->key == topISurf->key) && isurf->in_submodel )
         {
             float x = Fixed20ToFloat(iedge->x_start - 0xfffff);
             float newInvZ = isurf->zi_d + isurf->zi_stepx * x + isurf->zi_stepy * y;
@@ -1011,7 +1027,7 @@ continuesearch:
 
         if (isurf->key == topISurf->key)
         {
-            if (isurf->isInSubmodel)
+            if (isurf->in_submodel)
             {
                 float x = Fixed20ToFloat(iedge->x_start - 0xfffff);
                 float newInvZ = isurf->zi_d + isurf->zi_stepx * x + isurf->zi_stepy * y;
@@ -1068,12 +1084,12 @@ void TrailingEdge(IEdge *iedge, ISurface *isurfaces, I32 y, ESpan **currentSpan)
 {
     ISurface *isurf = &isurfaces[iedge->isurfaceOffsets[0]];
     
-    ASSERT(isurf->spanState == 1);
+    //ASSERT(isurf->spanState == 1);
 
     if (--(isurf->spanState) == 0)
     {
         /*
-        if (isurf->isInSubmodel)
+        if (isurf->in_submodel)
         {
             r_submodelactive--;
         }
@@ -1210,6 +1226,99 @@ void StepActiveIEdgeX(IEdge *iedge, IEdge *iedgeTail, IEdge *iedgeAfterTail)
     } while (iedge != iedgeTail);
 }
 
+I32 GetMipLevelForScale(float miplevels[MIP_NUM -1], I32 mip_min, float scale)
+{
+    /*
+     z_scale = (1/near_z) * sz
+     scale = z_scale * some_adjust
+     where sz is the z value projecting plane (screen) in view space.
+     If z_scale is greater than or equal to 1, that means the nearest point of 
+     the surface is front of the projecting plane and we should use the largest 
+     texture.
+    */
+
+    I32 miplevel = 3;
+    if (scale >= miplevels[0])
+    {
+        miplevel = 0;
+    }
+    else if (scale >= miplevels[1])
+    {
+        miplevel = 1;
+    }
+    else if (scale >= miplevels[2])
+    {
+        miplevel = 2;
+    }
+
+    if (miplevel < mip_min)
+    {
+        miplevel = mip_min;
+    }
+    return miplevel;
+}
+
+struct TextureGradient
+{
+
+};
+
+void CalcGradients(Surface *surface, I32 miplevel, Camera *camera)
+{
+    Plane *plane = surface->plane;
+
+    // mipscale = 1, 1/2, 1/4, 1/8
+    float mipscale = 1.0f / (float)(1 << miplevel);
+
+    Vec3f u_axis = TransformDirectionToView(camera, surface->tex_info->u_axis);
+    Vec3f v_axis = TransformDirectionToView(camera, surface->tex_info->v_axis);
+
+    /* 
+    u = vec3dot(p, u_axis) 
+	  = p.x * u_axis.x + p.y * u_axis.y + p.z * u_axis.z
+
+    u/z = (p.x * u_axis.x / p.z) + (p.y * u_axis.y / p.z) + u_axis.z
+
+	uinvz_step_x = u_axis.x / p.z --> stepping of u/z along x axis
+	uinvz_step_y = u_axis.y / p.z --> stepping of u/z along y axis
+	*/   
+
+    float temp = camera->scale_z * mipscale;
+    float uinvz_step_x = u_axis.x * temp;
+    float vinvz_step_x = v_axis.x * temp;
+    // y axis is pointing up, but we scan from top down.
+    float uinvz_step_y = -u_axis.y * temp;
+    float vinvz_step_y = -v_axis.y * temp;
+
+    // move to top-left corner
+    float uinvz_origin = -camera->screen_center.x * uinvz_step_x
+                       - camera->screen_center.y * uinvz_step_y
+                       + u_axis.z * mipscale;
+    float vinvz_origin = -camera->screen_center.x * vinvz_step_x
+                       - camera->screen_center.y * vinvz_step_y
+                       + v_axis.z * mipscale;
+
+    // TODO lw: why?
+    Vec3f transformed_cam_pos = TransformPointToView(camera, camera->position) * mipscale;
+
+    temp = 0x10000 * mipscale;
+    Fixed16 u_adjust = (Fixed16)(Vec3Dot(transformed_cam_pos, u_axis) * 0x10000 + 0.5f)
+                     - (Fixed16)((surface->uv_min[0] << 16) >> miplevel)
+                     + (Fixed16)(surface->tex_info->u_axis.z * temp);
+
+    Fixed16 v_adjust = (Fixed16)(Vec3Dot(transformed_cam_pos, v_axis) * 0x10000 + 0.5f)
+                     - (Fixed16)((surface->uv_min[1] << 16) >> miplevel)
+                     + (Fixed16)(surface->tex_info->v_axis.z * temp);
+
+    Fixed16 u_extent = ((surface->uv_extents[0] << 16) >> miplevel)- 1;
+    Fixed16 v_extent = ((surface->uv_extents[1] << 16) >> miplevel)- 1;
+}
+
+void DrawSpans(ESpan *span, U8 *pixel_dest, U8 *tex_src, TextureGradient tex_grad)
+{
+
+}
+
 void DrawSolidSurfaces(ISurface *isurf, U8 *buffer, I32 bytesPerRow)
 {
     U8 pixelColor = (size_t)isurf->data & 0xff;
@@ -1249,26 +1358,65 @@ void DrawZBuffer(float zi_stepx, float zi_stepy, float zi_d, ESpan *span,
     } while (span != NULL);
 }
 
-void DrawSurfaces(ISurface *isurfaces, ISurface *endISurf, 
-                  U8 *pbuffer, I32 bytesPerRow, float *zbuffer, I32 width)
+void DrawSurfaces(ISurface *isurfaces, ISurface *endISurf, U8 *pbuffer, 
+                  I32 bytesPerRow, float *zbuffer, I32 zbuffer_width, 
+                  float scaled_mip[MIP_NUM -1], I32 mip_min, float scale_z)
 {
-    for (ISurface *isurf = &isurfaces[1]; isurf < endISurf; ++isurf)
+    Cvar *cvar_drawflat = CvarGet("drawflat");
+    if (cvar_drawflat->val)
     {
-        if (!isurf->spans)
+        for (ISurface *isurf = &isurfaces[1]; isurf < endISurf; ++isurf)
         {
-            continue;
+            if (!isurf->spans)
+            {
+                continue;
+            }
+            DrawSolidSurfaces(isurf, pbuffer, bytesPerRow);
+            DrawZBuffer(isurf->zi_stepx, isurf->zi_stepy, isurf->zi_d, 
+                        isurf->spans, zbuffer, zbuffer_width);
         }
-        DrawSolidSurfaces(isurf, pbuffer, bytesPerRow);
-        DrawZBuffer(isurf->zi_stepx, isurf->zi_stepy, isurf->zi_d, 
-                    isurf->spans, zbuffer, width);
+    }
+    else
+    {
+        for (ISurface *isurf = &isurfaces[1]; isurf < endISurf; ++isurf)
+        {
+            if (!isurf->spans)
+            {
+                continue;
+            }
+            if (isurf->flags & SURF_DRAW_SKY)
+            {
+
+            }
+            else if (isurf->flags & SURF_DRAW_BACKGROUND)
+            {
+
+            }
+            else if (isurf->flags & SURF_DRAW_TURB)
+            {
+
+            }
+            else
+            {
+                if (isurf->in_submodel)
+                {
+
+                }
+
+                Surface *surface = (Surface *)isurf->data;
+
+                float scale = isurf->nearest_invz 
+                            * scale_z * surface->tex_info->mip_adjust;
+                I32 mip_level = GetMipLevelForScale(scaled_mip, mip_min, scale);
+            }
+        }
     }
 }
 
 #define MAX_SPAN_NUM 5120
 
-void ScanEdge(Recti rect, IEdge **iedges, IEdge **removeIEdges, 
-              ISurface *isurfaces, ISurface *endISurf,
-              U8 *pbuffer, I32 bytesPerRow, float *zbuffer, I32 bufferWidth)
+void ScanEdge(Recti rect, RenderData *renderdata, RenderBuffer *renderbuffer, 
+              Camera *camera)
 {
     U8 basespans[MAX_SPAN_NUM * sizeof(ESpan) + CACHE_SIZE];
     ESpan *spanlist = (ESpan *)((size_t)(basespans + CACHE_SIZE - 1) & ~(CACHE_SIZE - 1));
@@ -1308,39 +1456,45 @@ void ScanEdge(Recti rect, IEdge **iedges, IEdge **removeIEdges,
     iedgeSentinel.x_start = 2000 << 24; // make sure nothing sorts past this
     iedgeSentinel.prev = &iedgeAfterTail;
 
-    pbuffer = pbuffer + rect.y * bytesPerRow + rect.x;
-    zbuffer = zbuffer + rect.y * bufferWidth + rect.x;
+    I32 bytesPerRow = renderbuffer->bytesPerRow;
+    I32 zbuffer_width = renderbuffer->width;
+    U8 *pbuffer = renderbuffer->backbuffer + rect.y * bytesPerRow + rect.x;
+    float *zbuffer = renderbuffer->zbuffer + rect.y * zbuffer_width + rect.x;
+
+    ISurface *endISurf = renderdata->currentISurface;
 
     I32 bottom_y = rect.y + rect.height - 1;
     I32 scanliney = 0;
     for (scanliney = rect.y; scanliney < bottom_y; ++scanliney)
     {
         // background is pre-included
-        isurfaces[1].spanState = 1;
+        renderdata->isurfaces[1].spanState = 1;
         // sort iedges in a list in order of ascending x
-        if (iedges[scanliney])
+        if (renderdata->newIEdges[scanliney])
         {
-            InsertNewIEdges(iedges[scanliney], iedgeHead.next);
+            InsertNewIEdges(renderdata->newIEdges[scanliney], iedgeHead.next);
         }
-        GenerateSpan(isurfaces, screenStartX, screenEndX, scanliney, &currentSpan, 
-                     &iedgeHead, &iedgeTail);
+        GenerateSpan(renderdata->isurfaces, screenStartX, screenEndX, scanliney, 
+                     &currentSpan, &iedgeHead, &iedgeTail);
 
         // If we run out of spans, draw the image and flush span list.
         if (currentSpan >= maxSpan)
         {
-            DrawSurfaces(isurfaces, endISurf, pbuffer, bytesPerRow, zbuffer, bufferWidth);
+            DrawSurfaces(renderdata->isurfaces, endISurf, pbuffer, bytesPerRow, zbuffer, 
+                         zbuffer_width, renderdata->scaled_mip, renderdata->mip_min, 
+                         camera->scale_z);
             
             // clear surface span list
-            for (ISurface *surf = &isurfaces[1]; surf < endISurf; ++surf)
+            for (ISurface *surf = &(renderdata->isurfaces[1]); surf < endISurf; ++surf)
             {
                 surf->spans = NULL;
             }
             currentSpan = spanlist;
         }
 
-        if (removeIEdges[scanliney])
+        if (renderdata->removeIEdges[scanliney])
         {
-            RemoveEdges(removeIEdges[scanliney]);
+            RemoveEdges(renderdata->removeIEdges[scanliney]);
         }
         if (iedgeHead.next != &iedgeTail)
         {
@@ -1349,15 +1503,17 @@ void ScanEdge(Recti rect, IEdge **iedges, IEdge **removeIEdges,
     }
 
     // last scan, x has already been stepped
-    isurfaces[1].spanState = 1;
-    if (iedges[scanliney])
+    renderdata->isurfaces[1].spanState = 1;
+    if (renderdata->newIEdges[scanliney])
     {
-        InsertNewIEdges(iedges[scanliney], iedgeHead.next);
+        InsertNewIEdges(renderdata->newIEdges[scanliney], iedgeHead.next);
     }
-    GenerateSpan(isurfaces, screenStartX, screenEndX, scanliney, &currentSpan, 
+    GenerateSpan(renderdata->isurfaces, screenStartX, screenEndX, scanliney, &currentSpan, 
                  &iedgeHead, &iedgeTail);
 
-    DrawSurfaces(isurfaces, endISurf, pbuffer, bytesPerRow, zbuffer, bufferWidth);
+    DrawSurfaces(renderdata->isurfaces, endISurf, pbuffer, bytesPerRow, zbuffer, 
+                 zbuffer_width, renderdata->scaled_mip, renderdata->mip_min, 
+                 camera->scale_z);
 }
 
 #define NUM_STACK_EDGE 2400
@@ -1405,14 +1561,19 @@ void EdgeDrawing(RenderData *renderdata, Camera *camera, RenderBuffer *renderbuf
     RenderWorld(renderdata->worldModel->nodes, camera, renderdata);
 
     Recti rect = {0, 0, 640, 480}; // TODO lw: remove this
-    ScanEdge(rect, renderdata->newIEdges, renderdata->removeIEdges, 
-             renderdata->isurfaces, renderdata->currentISurface,
-             renderbuffer->backbuffer, renderbuffer->bytesPerRow,
-             renderbuffer->zbuffer, renderbuffer->width);
+    ScanEdge(rect, renderdata, renderbuffer, camera);
 }
 
 void SetupFrame(RenderData *renderdata, Camera *camera)
 {
+    Cvar *mipscale = CvarGet("mipscale");
+    for (I32 i = 0; i < (MIP_NUM - 1); ++i)
+    {
+        renderdata->scaled_mip[i] = g_base_mip[i] * mipscale->val;
+    }
+    Cvar *mip_min = CvarGet("mipmin");
+    renderdata->mip_min = (I32)mip_min->val;
+
     renderdata->framecount++;
 
     renderdata->oldViewLeaf = renderdata->currentViewLeaf;
@@ -1432,4 +1593,11 @@ void RenderView()
     SetupFrame(&g_renderdata, &g_camera);
 
     EdgeDrawing(&g_renderdata, &g_camera, &g_renderBuffer);
+}
+
+void RenderInit()
+{
+    CvarSet("drawflat", 1);
+    CvarSet("mipscale", 1);
+    CvarSet("mipmin", 0);
 }

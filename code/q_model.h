@@ -51,13 +51,13 @@ struct MipTexture
 
 struct TextureInfo
 {
-    Vec3f uAxis;
-    float uOffset;
-    Vec3f vAxis;
-    float vOffset;
+    Vec3f u_axis;
+    float u_offset;
+    Vec3f v_axis;
+    float v_offset;
 
     Texture *texture;
-    float mipAdjust;
+    float mip_adjust;
     I32 flags;
 };
 
@@ -78,7 +78,7 @@ struct Plane
 struct Surface
 {
     Plane *plane;
-    TextureInfo *texInfo;
+    TextureInfo *tex_info;
 
     I32 visibleFrame;
 
@@ -92,8 +92,8 @@ struct Surface
 
     // SurfaceCache *cacheSpots[MIP_LEVELS];
 
-    I16 texCoordMin[2];
-    I16 texCoordExtents[2];
+    I16 uv_min[2];
+    I16 uv_extents[2];
 
 
     U32 styles[MAX_LIGHT_MAPS];
@@ -205,7 +205,7 @@ struct Model
     // queried by firstEdge and numEdge in Surface struct
     I32 *surfaceEdges;
     Texture **textures;
-    TextureInfo *texInfo;
+    TextureInfo *tex_info;
     Surface *surfaces;
     ClipNode *clipNodes;
     Surface **marksurfaces;

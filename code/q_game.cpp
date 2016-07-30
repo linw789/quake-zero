@@ -44,7 +44,6 @@ extern "C" GAME_INIT(GameInit)
     CvarSet("moveforward", 0.0f);
     CvarSet("movebackward", 0.0f);
 
-    g_camera.nearZ = 0.1f;
     g_camera.position = {-735.968750f, -1591.96875f, 110.031250f};
     // x right, y forward, z up
     g_camera.angles = {0, 0.0f, -90.0f};
@@ -56,14 +55,18 @@ extern "C" GAME_INIT(GameInit)
     g_renderdata.worldModel = g_worldModel;
 
     ResetCamera(&g_camera, screenRect, fovx);
+
+    RenderInit();
 }
 
 extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 {
     Vec3f forward = g_camera.roty;
-    forward.z = 0;
+    //forward.z = 0;
+    forward = Vec3Normalize(forward);
     Vec3f right = g_camera.rotx;
-    right.z = 0;
+    //right.z = 0;
+    right = Vec3Normalize(right);
     for (I32 i = 0; i < game_input->kevt_count; ++i)
     {
         KeyState key = game_input->key_events[i];
@@ -98,7 +101,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     g_camera.angles.z = degree;
     
     degree = g_camera.angles.x;
-    degree += game_input->mouse.delta_y * 0.05f;
+    degree -= game_input->mouse.delta_y * 0.05f;
     if (degree > 85.0f)
     {
         degree = 85.0f;
