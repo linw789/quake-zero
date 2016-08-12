@@ -16,7 +16,7 @@ SYS_ERROR(CmdError)
     printf(error);
 }
 
-int g_errorCount = 0;
+I32 g_errorCount = 0;
 #define ERROR(condition) if (!(condition)) { \
     ++g_errorCount; \
     printf("!!! Error at line %d\n", __LINE__); \
@@ -25,7 +25,7 @@ int g_errorCount = 0;
 void test_StringLength()
 {
     char *testStr = "";
-    int length = StringLength(testStr);
+    I32 length = StringLength(testStr);
     ERROR(length == 0);
 
     // error: testStr = '\0'; assigning 0 to Str
@@ -43,7 +43,7 @@ void test_StringCompare()
     char *str1 = "test string 1";
     char *str2 = "test string 2";
     
-    int result = StringCompare(str1, str2);
+    I32 result = StringCompare(str1, str2);
     ERROR(result == -1);
 
     result = StringNCompare(str1, str2, 12);
@@ -73,7 +73,7 @@ void test_StringCopy()
     char *src = "normal string";
     char dest[128];
 
-    int result = StringCopy(dest, 128, src, 0);
+    I32 result = StringCopy(dest, 128, src, 0);
     ERROR(result == 13);
     ERROR(StringCompare(dest, src) == 0);
 
@@ -108,7 +108,7 @@ void test_IntToString()
 
 void test_StringToInt()
 {
-    int result = StringToInt("9999");
+    I32 result = StringToInt("9999");
     ERROR(result == 9999);
 
     result = StringToInt("-12345");
@@ -129,10 +129,10 @@ void test_StringToInt()
 
 void test_MemSet()
 {
-    // uint8 dest[128] = {7}; will only initialize the dest[0] to 7, the rest 
+    // U8 dest[128] = {7}; will only initialize the dest[0] to 7, the rest 
     // will still be 0
-    uint8 dest[128] = {0};
-    for (int i = 0; i < 128; ++i)
+    U8 dest[128] = {0};
+    for (I32 i = 0; i < 128; ++i)
     {
         dest[i] = 7;
     }
@@ -148,13 +148,13 @@ void test_MemSet()
 
     dest[0] = 5;
     MemSet(dest + 1, 2, 4);
-    for (int i = 1; i < 5; ++i) 
+    for (I32 i = 1; i < 5; ++i) 
     {
         dest[i] = 2;
     }
 
     MemSet(dest, 2, 128);
-    for (int i = 0; i < 128; ++i)
+    for (I32 i = 0; i < 128; ++i)
     {
         ERROR(dest[i] == 2);
     }
@@ -162,41 +162,41 @@ void test_MemSet()
 
 void test_MemCpy()
 {
-    uint8 dest[128] = {0};
-    for (int i = 0; i < 128; ++i)
+    U8 dest[128] = {0};
+    for (I32 i = 0; i < 128; ++i)
     {
         dest[i] = 3;
     }
 
-    uint8 src[128] = {0};
-    for (int i = 0; i < 128; ++i)
+    U8 src[128] = {0};
+    for (I32 i = 0; i < 128; ++i)
     {
         src[i] = 5;
     }
 
     MemCpy(dest + 1, src, 4);
     ERROR(dest[0] == 3);
-    for (int i = 1; i < 5; ++i)
+    for (I32 i = 1; i < 5; ++i)
     {
         ERROR(dest[i] == 5);
     }
 
-    for (int i = 1; i < 5; ++i)
+    for (I32 i = 1; i < 5; ++i)
     {
         src[i] = 7;
     }
     MemCpy(dest, src + 1, 4);
-    for (int i = 0; i < 4; ++i)
+    for (I32 i = 0; i < 4; ++i)
     {
         src[i] = 7;
     }
 
-    for (int i = 0; i < 4; ++i)
+    for (I32 i = 0; i < 4; ++i)
     {
         src[i] = 11;
     }
     MemCpy(dest, src, 128);
-    for (int i = 0; i < 4; ++i)
+    for (I32 i = 0; i < 4; ++i)
     {
         ERROR(dest[i] == 11);
     }
@@ -217,21 +217,21 @@ void test_DataSize()
 }
 
 #define POOL_SIZE 16 * 1204 * 1024
-uint8 pool[POOL_SIZE];
+U8 pool[POOL_SIZE];
 
 void test_MemoryAlloc()
 {
     MemoryInit((void *)pool, POOL_SIZE);
 
-    ERROR(g_hunkBase == pool);
-    ERROR(g_hunkTotalSize == POOL_SIZE);
-    int size = Align16(DYNAMIC_ZONE_SIZE + sizeof(HunkHeader));
-    ERROR(g_hunkLowUsed == size);
-    ERROR(g_hunkHighUsed == 0);
+    ERROR(g_hunk_base == pool);
+    ERROR(g_hunk_total_size == POOL_SIZE);
+    I32 size = Align16(DYNAMIC_ZONE_SIZE + sizeof(HunkHeader));
+    ERROR(g_hunk_low_used == size);
+    ERROR(g_hunk_high_used == 0);
 
-    ERROR((uint8 *)g_mainZone == pool + sizeof(HunkHeader));
-    ERROR(g_mainZone->rover == (MemoryBlock *)(g_mainZone + 1));
-    ERROR(g_mainZone->size == DYNAMIC_ZONE_SIZE);
+    ERROR((U8 *)g_main_zone == pool + sizeof(HunkHeader));
+    ERROR(g_main_zone->rover == (MemoryBlock *)(g_main_zone + 1));
+    ERROR(g_main_zone->size == DYNAMIC_ZONE_SIZE);
 
     // ====================
     // test hunk allocation
@@ -239,19 +239,19 @@ void test_MemoryAlloc()
 
     void *hunk0 = HunkLowAlloc(1231, "hunk0");
     HunkHeader *hunk0Header = (HunkHeader *)hunk0 - 1;
-    int hunk0Size = Align16(1231 + sizeof(HunkHeader));
+    I32 hunk0Size = Align16(1231 + sizeof(HunkHeader));
     ERROR(hunk0Header->size == hunk0Size);
     ERROR(hunk0Header->sentinel == HUNK_SENTINEL);
     ERROR(StringCompare(hunk0Header->name, "hunk0") == 0);
-    ERROR(g_hunkLowUsed == size + hunk0Size);
+    ERROR(g_hunk_low_used == size + hunk0Size);
 
     void *hunk1 = HunkHighAlloc(3211, "hunk1");
     HunkHeader *hunk1Header = (HunkHeader *)hunk1 - 1;
-    int hunk1Size = Align16(3211 + sizeof(HunkHeader));
+    I32 hunk1Size = Align16(3211 + sizeof(HunkHeader));
     ERROR(hunk0Header->size == hunk0Size);
     ERROR(hunk0Header->sentinel == HUNK_SENTINEL);
     ERROR(StringCompare(hunk1Header->name, "hunk1") == 0);
-    ERROR(g_hunkHighUsed == hunk1Size);
+    ERROR(g_hunk_high_used == hunk1Size);
 
     // ====================
     // test zone allocation
@@ -259,11 +259,11 @@ void test_MemoryAlloc()
 
     void *zone0 = ZoneTagMalloc(234, 8);
     MemoryBlock *zone0Block = (MemoryBlock *)zone0 - 1;
-    int zone0Size = Align8(234 + sizeof(MemoryBlock) + 4);
+    I32 zone0Size = Align8(234 + sizeof(MemoryBlock) + 4);
     ERROR(zone0Block->size == zone0Size);
     ERROR(zone0Block->tag == 8);
     ERROR(zone0Block->id == ZONE_ID);
-    ERROR(zone0Block->prev == &g_mainZone->tailhead);
+    ERROR(zone0Block->prev == &g_main_zone->tailhead);
     MemoryBlock *freeBlock = zone0Block->next;
     ERROR(freeBlock->tag == 0);
 
@@ -274,7 +274,7 @@ void test_MemoryAlloc()
 
     ZoneFree(zone1);
     MemoryBlock *zone1Block = (MemoryBlock *)zone1 - 1;
-    int zone1Size = Align8(324 + sizeof(MemoryBlock) + 4);
+    I32 zone1Size = Align8(324 + sizeof(MemoryBlock) + 4);
     ERROR(zone1Block->tag == 0);
     ERROR(zone1Block->size == zone1Size);
     ERROR(zone1Block->id == ZONE_ID);
@@ -283,7 +283,7 @@ void test_MemoryAlloc()
 
     ZoneFree(zone3);
     MemoryBlock *zone3Block = (MemoryBlock *)zone3 - 1;
-    int zone3Size = Align8(223 + sizeof(MemoryBlock) + 4);
+    I32 zone3Size = Align8(223 + sizeof(MemoryBlock) + 4);
     ERROR(zone3Block->tag == 0);
     ERROR(zone3Block->size == zone3Size);
     ERROR(zone3Block->id == ZONE_ID);
@@ -291,7 +291,7 @@ void test_MemoryAlloc()
     ERROR(zone3Block->next == (MemoryBlock *)zone4 - 1);
     
     ZoneFree(zone2);
-    int zone2Size = Align8(432 + sizeof(MemoryBlock) + 4);
+    I32 zone2Size = Align8(432 + sizeof(MemoryBlock) + 4);
     ERROR(zone1Block->tag == 0);
     ERROR(zone1Block->size == zone1Size + zone2Size + zone3Size);
     ERROR(zone1Block->prev == (MemoryBlock *)zone0 - 1);
@@ -300,11 +300,11 @@ void test_MemoryAlloc()
     void *tooBig = ZoneTagMalloc(DYNAMIC_ZONE_SIZE * 2, 22);
     ERROR(tooBig == NULL);
 
-    ZoneClearAll(g_mainZone);
-    ERROR(g_mainZone->tailhead.next == g_mainZone->rover);
-    ERROR(g_mainZone->tailhead.prev == g_mainZone->rover);
-    ERROR(g_mainZone->rover->next == &g_mainZone->tailhead);
-    ERROR(g_mainZone->rover->next == &g_mainZone->tailhead);
+    ZoneClearAll(g_main_zone);
+    ERROR(g_main_zone->tailhead.next == g_main_zone->rover);
+    ERROR(g_main_zone->tailhead.prev == g_main_zone->rover);
+    ERROR(g_main_zone->rover->next == &g_main_zone->tailhead);
+    ERROR(g_main_zone->rover->next == &g_main_zone->tailhead);
 }
 
 void tests()
@@ -376,34 +376,34 @@ void demo_ParseCommand(char *line, char *verb, char *noun)
 	return;
 }
 
-int demo_EndFreeSizeForCache()
+I32 demo_EndFreeSizeForCache()
 {
-    int size = g_hunkTotalSize - g_hunkLowUsed - g_hunkHighUsed;
-    CacheHeader *first = g_cacheHead.next;
-    CacheHeader *last = g_cacheHead.prev;
-    int cacheUsed = (int)((uint8 *)last - (uint8 *)first) + last->size;
+    I32 size = g_hunk_total_size - g_hunk_low_used - g_hunk_high_used;
+    CacheHeader *first = g_cache_head.next;
+    CacheHeader *last = g_cache_head.prev;
+    I32 cacheUsed = (I32)((U8 *)last - (U8 *)first) + last->size;
     size = size - cacheUsed;
     return size;
 }
 
 void demo_drawCacheList()
 {
-    CacheHeader *ch = g_cacheHead.next;
+    CacheHeader *ch = g_cache_head.next;
 
-    if (ch == &g_cacheHead)
+    if (ch == &g_cache_head)
     {
-        int endFreeSize = demo_EndFreeSizeForCache();
+        I32 endFreeSize = demo_EndFreeSizeForCache();
         printf("[end:%d]", endFreeSize);
         return ;
     }
 
-    while (ch != &g_cacheHead)
+    while (ch != &g_cache_head)
     {
         printf("[%s:%d]->", ch->name, ch->size);
         
-        if (ch->next != &g_cacheHead)
+        if (ch->next != &g_cache_head)
         {
-            int holeSize = (int)((uint8 *)ch->next - (uint8 *)ch - ch->size);
+            I32 holeSize = (I32)((U8 *)ch->next - (U8 *)ch - ch->size);
             if (holeSize > 0)
             {
                 printf("[hole:%d]->", holeSize);
@@ -411,7 +411,7 @@ void demo_drawCacheList()
         }
         else
         {
-            int endFreeSize = demo_EndFreeSizeForCache();
+            I32 endFreeSize = demo_EndFreeSizeForCache();
             printf("[end:%d]", endFreeSize);
         }
 
@@ -424,11 +424,11 @@ void demo_drawCacheList()
 void demo_DrawLRUList()
 {
     printf("LRU list: ");
-    CacheHeader *ch = g_cacheHead.lru_next;
-    while (ch != &g_cacheHead)
+    CacheHeader *ch = g_cache_head.lru_next;
+    while (ch != &g_cache_head)
     {
         printf("%s", ch->name);
-        if (ch->lru_next != &g_cacheHead)
+        if (ch->lru_next != &g_cache_head)
         {
             printf("->");
         }
@@ -440,14 +440,14 @@ void demo_DrawLRUList()
 void demo_CacheAlloc()
 {
     // leave 1024 bytes for cache allocation
-    g_hunkLowUsed = g_hunkTotalSize - g_hunkHighUsed - 1024;
+    g_hunk_low_used = g_hunk_total_size - g_hunk_high_used - 1024;
 
     char cmdLine[32];
     char arg0[16];
     char arg1[16];
     char userCountStr[16];
     CacheUser cacheUser[128] = {0};
-    int cacheUserCount = 0;
+    I32 cacheUserCount = 0;
 
     printf("Cache Alloc Demo Starts ... \n\n");
     printf("Available cache size: %d bytes\n", demo_EndFreeSizeForCache());
@@ -477,7 +477,7 @@ void demo_CacheAlloc()
                 break ;
             }
 
-            int size = StringToInt(arg1);
+            I32 size = StringToInt(arg1);
             IntToString(cacheUserCount, userCountStr, 16);
 
             CacheAlloc(cacheUser + cacheUserCount, size, userCountStr);
@@ -498,7 +498,7 @@ void demo_CacheAlloc()
     printf("Cache Alloc Demo Ended.");
 }
 
-int main(int argc, char *argv[])
+I32 main(I32 argc, char *argv[])
 {
     g_platformAPI.SysError = CmdError;
 
