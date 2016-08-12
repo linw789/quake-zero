@@ -121,7 +121,7 @@ struct ISurface
     float nearest_invz;
     B32 in_submodel;
     // used for calculating 1/z in screen space
-    float zi_stepx, zi_stepy, zi_d;
+    float zi_stepx, zi_stepy, zi_start;
 };
 
 #define MAX_PIXEL_HEIGHT 1024

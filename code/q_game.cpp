@@ -1,9 +1,11 @@
 #include "q_platform.h"
 #include "q_common.cpp"
 #include "q_model.cpp"
+#include "q_lightmap.cpp"
 #include "q_render.cpp"
 
 Model *g_worldModel;
+float g_targetSecondsPerFrame;
 
 void AllocRenderBuffer(RenderBuffer *renderBuffer, GameOffScreenBuffer *offscreenBuffer)
 {
@@ -12,14 +14,19 @@ void AllocRenderBuffer(RenderBuffer *renderBuffer, GameOffScreenBuffer *offscree
     renderBuffer->bytesPerPixel = offscreenBuffer->bytesPerPixel;
     renderBuffer->bytesPerRow = offscreenBuffer->bytesPerRow;
 
-    int pixelBufferSize = renderBuffer->bytesPerRow * renderBuffer->height;
+    I32 pixel_buffer_size = renderBuffer->bytesPerRow * renderBuffer->height;
 
-    int zBufferSize = renderBuffer->width * sizeof(*renderBuffer->zbuffer) * renderBuffer->height;
+    I32 zbuffer_size = renderBuffer->width * sizeof(*renderBuffer->zbuffer) * renderBuffer->height;
     
-    renderBuffer->backbuffer = (U8 *)HunkHighAlloc(pixelBufferSize, "renderbuffer");
-    renderBuffer->zbuffer = (float *)HunkHighAlloc(zBufferSize, "zbuffer");
+    renderBuffer->backbuffer = (U8 *)HunkHighAlloc(pixel_buffer_size, "renderbuffer");
+    renderBuffer->zbuffer = (float *)HunkHighAlloc(zbuffer_size, "zbuffer");
 
     offscreenBuffer->memory = renderBuffer->backbuffer;
+
+    // allocate for surface caching
+    I32 surface_cache_size = SurfaceCacheGetSizeForResolution(renderBuffer->width, renderBuffer->height);
+    void *surface_cache = HunkHighAlloc(surface_cache_size, "surfacecache");
+    SurfaceCacheInit(surface_cache, surface_cache_size);
 }
 
 extern "C" GAME_INIT(GameInit)
@@ -57,6 +64,8 @@ extern "C" GAME_INIT(GameInit)
     ResetCamera(&g_camera, screenRect, fovx);
 
     RenderInit();
+
+    g_targetSecondsPerFrame = memory->targetSecondsPerFrame;
 }
 
 extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
@@ -114,5 +123,5 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     g_camera.angles.x = degree;
     AngleVectors(g_camera.angles, &g_camera.rotx, &g_camera.roty, &g_camera.rotz);
 
-    RenderView();
+    RenderView(g_targetSecondsPerFrame);
 }

@@ -522,6 +522,8 @@ WinMain(HINSTANCE instance, HINSTANCE preInstance, LPSTR cmdline, int showCode)
 
     GameMemory gameMemory = {};
 
+    gameMemory.targetSecondsPerFrame = targetSecondsPerFrame;
+
     gameMemory.gameMemory = malloc(MEGA_BYTES(64));
     gameMemory.gameMemorySize = MEGA_BYTES(64);
 

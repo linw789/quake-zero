@@ -14,6 +14,15 @@ inline float Clamp(float min, float max, float x)
     return x;
 }
 
+inline Fixed16 Clamp(Fixed16 min, Fixed16 max, Fixed16 x)
+{
+    if (x < min)
+        x = min;
+    if (x > max)
+        x = max;
+    return x;
+}
+
 inline float Absf(float x)
 {
     float result = fabsf(x);

@@ -233,11 +233,11 @@ void UpdateVisibleLeaves(RenderData *renderdata)
             Node *node = (Node *)(leafHead + i);
             do 
             {
-                if (node->visibleFrame == renderdata->updateCountPVS)
+                if (node->visibleframe == renderdata->updateCountPVS)
                 {
                     break;
                 }
-                node->visibleFrame = renderdata->updateCountPVS;
+                node->visibleframe = renderdata->updateCountPVS;
                 node = node->parent;
             } while (node != NULL);
         }
@@ -751,9 +751,9 @@ void RenderFace(Surface *surface, RenderData *renderdata, Camera *camera,
     // y axis is pointing up in view space
     isurface->zi_stepy = -normal_view.y * camera->scale_invz * inv_dist;
     // move to top-left corner
-    isurface->zi_d = normal_view.z * inv_dist
-                   - camera->screen_center.x * isurface->zi_stepx
-                   - camera->screen_center.y * isurface->zi_stepy;
+    isurface->zi_start = normal_view.z * inv_dist
+                       - camera->screen_center.x * isurface->zi_stepx
+                       - camera->screen_center.y * isurface->zi_stepy;
 
     renderdata->currentISurface++;
 }
@@ -764,7 +764,7 @@ void RecurseWorldNode(Node *node, Camera *camera, RenderData *renderdata, int cl
     {
         return ;
     }
-    if (node->visibleFrame != renderdata->updateCountPVS)
+    if (node->visibleframe != renderdata->updateCountPVS)
     {
         return ;
     }
@@ -827,7 +827,7 @@ void RecurseWorldNode(Node *node, Camera *camera, RenderData *renderdata, int cl
         int count = leaf->numMarksurface;
         while (count)
         {
-            (*mark)->visibleFrame = renderdata->framecount;
+            (*mark)->visibleframe = renderdata->framecount;
             mark++;
             count--;
         }
@@ -876,17 +876,17 @@ void RecurseWorldNode(Node *node, Camera *camera, RenderData *renderdata, int cl
         RecurseWorldNode(node->children[side], camera, renderdata, clipflag);
 
         // draw surface
-        int count = node->numSurface;
+        int count = node->numsurface;
         if (count)
         {
-            Surface *surface = renderdata->worldModel->surfaces + node->firstSurface;
+            Surface *surface = renderdata->worldModel->surfaces + node->firstsurface;
 
             if (d < -BACKFACE_EPSILON)
             {
                 while (count)
                 {
                     if ((surface->flags & SURF_PLANE_BACK) 
-                        && (surface->visibleFrame == renderdata->framecount))
+                        && (surface->visibleframe == renderdata->framecount))
                     {
                         RenderFace(surface, renderdata, camera, false, clipflag);
                     }
@@ -899,7 +899,7 @@ void RecurseWorldNode(Node *node, Camera *camera, RenderData *renderdata, int cl
                 while (count)
                 {
                     if (!(surface->flags & SURF_PLANE_BACK) 
-                        && (surface->visibleFrame == renderdata->framecount))
+                        && (surface->visibleframe == renderdata->framecount))
                     {
                         RenderFace(surface, renderdata, camera, false, clipflag);
                     }
@@ -1002,9 +1002,9 @@ void LeadingEdge(IEdge *iedge, ISurface *isurfaces, int y, ESpan **currentSpan)
         if ((isurf->key == topISurf->key) && isurf->in_submodel )
         {
             float x = Fixed20ToFloat(iedge->x_start - 0xfffff);
-            float newInvZ = isurf->zi_d + isurf->zi_stepx * x + isurf->zi_stepy * y;
+            float newInvZ = isurf->zi_start + isurf->zi_stepx * x + isurf->zi_stepy * y;
             float newInvZBottom = newInvZ * 0.99f; // TODO lw: ???
-            float currentTopInvZ = topISurf->zi_d + topISurf->zi_stepx * x + topISurf->zi_stepy * y;
+            float currentTopInvZ = topISurf->zi_start + topISurf->zi_stepx * x + topISurf->zi_stepy * y;
             if (newInvZBottom >= currentTopInvZ)
             {
                 goto newtop;
@@ -1030,9 +1030,9 @@ continuesearch:
             if (isurf->in_submodel)
             {
                 float x = Fixed20ToFloat(iedge->x_start - 0xfffff);
-                float newInvZ = isurf->zi_d + isurf->zi_stepx * x + isurf->zi_stepy * y;
+                float newInvZ = isurf->zi_start + isurf->zi_stepx * x + isurf->zi_stepy * y;
                 float newInvZBottom = newInvZ * 0.99f; 
-                float currentTopInvZ = topISurf->zi_d + topISurf->zi_stepx * x + topISurf->zi_stepy * y;
+                float currentTopInvZ = topISurf->zi_start + topISurf->zi_stepx * x + topISurf->zi_stepy * y;
                 if (newInvZBottom >= currentTopInvZ)
                 {
                     goto gotposition;
@@ -1260,11 +1260,26 @@ I32 GetMipLevelForScale(float miplevels[MIP_NUM -1], I32 mip_min, float scale)
 
 struct TextureGradient
 {
+    float uinvz_step_x;
+    float vinvz_step_x;
+    float uinvz_step_y;
+    float vinvz_step_y;
+    float uinvz_origin;
+    float vinvz_origin;
 
+    Fixed16 u_adjust;
+    Fixed16 v_adjust;
+    Fixed16 u_extent;
+    Fixed16 v_extent;
 };
 
-void CalcGradients(Surface *surface, I32 miplevel, Camera *camera)
+/*
+Calculate perspective-correct texture stepping variables.
+*/
+TextureGradient CalcGradients(Surface *surface, I32 miplevel, Camera *camera)
 {
+    TextureGradient result = {0};
+
     Plane *plane = surface->plane;
 
     // mipscale = 1, 1/2, 1/4, 1/8
@@ -1274,6 +1289,7 @@ void CalcGradients(Surface *surface, I32 miplevel, Camera *camera)
     Vec3f v_axis = TransformDirectionToView(camera, surface->tex_info->v_axis);
 
     /* 
+    u_axis = u_axis * mipscale
     u = vec3dot(p, u_axis) 
 	  = p.x * u_axis.x + p.y * u_axis.y + p.z * u_axis.z
 
@@ -1283,40 +1299,142 @@ void CalcGradients(Surface *surface, I32 miplevel, Camera *camera)
 	uinvz_step_y = u_axis.y / p.z --> stepping of u/z along y axis
 	*/   
 
-    float temp = camera->scale_z * mipscale;
-    float uinvz_step_x = u_axis.x * temp;
-    float vinvz_step_x = v_axis.x * temp;
+    float temp = camera->scale_invz * mipscale;
+    result.uinvz_step_x = u_axis.x * temp;
+    result.vinvz_step_x = v_axis.x * temp;
     // y axis is pointing up, but we scan from top down.
-    float uinvz_step_y = -u_axis.y * temp;
-    float vinvz_step_y = -v_axis.y * temp;
+    result.uinvz_step_y = -u_axis.y * temp;
+    result.vinvz_step_y = -v_axis.y * temp;
 
     // move to top-left corner
-    float uinvz_origin = -camera->screen_center.x * uinvz_step_x
-                       - camera->screen_center.y * uinvz_step_y
-                       + u_axis.z * mipscale;
-    float vinvz_origin = -camera->screen_center.x * vinvz_step_x
-                       - camera->screen_center.y * vinvz_step_y
-                       + v_axis.z * mipscale;
+    result.uinvz_origin = -camera->screen_center.x * result.uinvz_step_x
+                        - camera->screen_center.y * result.uinvz_step_y
+                        + u_axis.z * mipscale;
+    result.vinvz_origin = -camera->screen_center.x * result.vinvz_step_x
+                        - camera->screen_center.y * result.vinvz_step_y
+                        + v_axis.z * mipscale;
 
     // TODO lw: why?
     Vec3f transformed_cam_pos = TransformPointToView(camera, camera->position) * mipscale;
 
-    temp = 0x10000 * mipscale;
-    Fixed16 u_adjust = (Fixed16)(Vec3Dot(transformed_cam_pos, u_axis) * 0x10000 + 0.5f)
+    temp = 0x10000 * mipscale; // to Fixed16
+
+    // surface->uv_min[0] << 16 is promoted to I32, even surface->uv_min[0] is I16
+    result.u_adjust = (Fixed16)(Vec3Dot(transformed_cam_pos, u_axis) * 0x10000 + 0.5f)
                      - (Fixed16)((surface->uv_min[0] << 16) >> miplevel)
                      + (Fixed16)(surface->tex_info->u_axis.z * temp);
 
-    Fixed16 v_adjust = (Fixed16)(Vec3Dot(transformed_cam_pos, v_axis) * 0x10000 + 0.5f)
+    result.v_adjust = (Fixed16)(Vec3Dot(transformed_cam_pos, v_axis) * 0x10000 + 0.5f)
                      - (Fixed16)((surface->uv_min[1] << 16) >> miplevel)
                      + (Fixed16)(surface->tex_info->v_axis.z * temp);
 
-    Fixed16 u_extent = ((surface->uv_extents[0] << 16) >> miplevel)- 1;
-    Fixed16 v_extent = ((surface->uv_extents[1] << 16) >> miplevel)- 1;
+    result.u_extent = ((surface->uv_extents[0] << 16) >> miplevel)- 1;
+    result.v_extent = ((surface->uv_extents[1] << 16) >> miplevel)- 1;
+
+    return result;
 }
 
-void DrawSpans(ESpan *span, U8 *pixel_dest, U8 *tex_src, TextureGradient tex_grad)
+Texture *AnimateTexture(Texture *tex)
 {
+    return NULL;
+}
 
+void DrawSpan8(ESpan *span, TextureGradient tex_grad, float zi_start, float zi_stepx, 
+               float zi_stepy, U8 *surfcache, I32 cachewidth, U8 *pixelbuffer, I32 bytesPerRow)
+{
+    float uinvz_step_x8 = tex_grad.uinvz_step_x * 8.0f;
+    float vinvz_step_x8 = tex_grad.vinvz_step_x * 8.0f;
+    float invz_step_x8 = zi_stepx * 8.0f;
+
+    // interpolating texels across the span
+    while (span)
+    {
+        U8 *pixel = pixelbuffer + span->y * bytesPerRow + span->x_start;
+
+        I32 span_pixel_count = span->count;
+
+        float uinvz = tex_grad.uinvz_origin 
+                    + span->x_start * tex_grad.uinvz_step_x
+                    + span->y * tex_grad.uinvz_step_y;
+
+        float vinvz = tex_grad.vinvz_origin
+                    + span->x_start * tex_grad.vinvz_step_x
+                    + span->y * tex_grad.vinvz_step_y;
+
+        float invz = zi_start + span->x_start * zi_stepx + span->y * zi_stepy;
+
+        float z = (float)0x10000 / invz; // prescale to 16.16 fixed-point
+
+        Fixed16 u = (Fixed16)(uinvz * z) + tex_grad.u_adjust;
+        u = Clamp(0, tex_grad.u_extent, u);
+        Fixed16 v = (Fixed16)(vinvz * z) + tex_grad.v_adjust;
+        v = Clamp(0, tex_grad.v_extent, v);
+        
+        Fixed16 u_step = 0, v_step = 0;
+        Fixed16 u_next8 = 0, v_next8 = 0;
+
+        do
+        {
+            I32 count = 8;
+            if (span_pixel_count < 8)
+            {
+                count = span_pixel_count;
+            }
+            span_pixel_count -= count;
+
+            // calculate stepping variables at multiples of 8
+            if (count >= 8)
+            {
+                uinvz += uinvz_step_x8;
+                vinvz += vinvz_step_x8;
+                invz += invz_step_x8;
+                z = (float)0x10000 / invz; // prescale to 16.16 fixed-point
+
+                u_next8 = (Fixed16)(uinvz * z) + tex_grad.u_adjust;
+                u_next8 = Clamp(8, tex_grad.u_extent, u_next8);
+
+                v_next8 = (Fixed16)(vinvz * z) + tex_grad.v_adjust;
+                v_next8 = Clamp(8, tex_grad.v_extent, v_next8);
+
+                u_step = (u_next8 - u) >> 3;
+                v_step = (v_next8 - v) >> 3;
+            }
+            else
+            {
+                float steps = (float)(count - 1);
+                uinvz += tex_grad.uinvz_step_x * steps;
+                vinvz += tex_grad.vinvz_step_x * steps;
+                invz += zi_stepx * steps;
+                z = (float)0x10000 / invz;
+
+                // u_next8 doesn't mean next 8 steps
+                u_next8 = (Fixed16)(uinvz * z) + tex_grad.u_adjust;
+                u_next8 = Clamp(8, tex_grad.u_extent, u_next8);
+
+                v_next8 = (Fixed16)(vinvz * z) + tex_grad.v_adjust;
+                v_next8 = Clamp(8, tex_grad.v_extent, v_next8);
+
+                if (count > 1)
+                {
+                    u_step = (u_next8 - u) / (count - 1);
+                    v_step = (v_next8 - v) / (count - 1);
+                }
+            }
+
+            while (count)
+            {
+                *pixel++ = *(surfcache + (v >> 16) * cachewidth + (u >> 16));
+                u += u_step;
+                v += v_step;
+            }
+
+            u = u_next8;
+            v = v_next8;
+
+        } while (span_pixel_count > 0);
+
+        span = span->next;
+    }
 }
 
 void DrawSolidSurfaces(ISurface *isurf, U8 *buffer, I32 bytesPerRow)
@@ -1337,14 +1455,14 @@ void DrawSolidSurfaces(ISurface *isurf, U8 *buffer, I32 bytesPerRow)
     }
 }
 
-void DrawZBuffer(float zi_stepx, float zi_stepy, float zi_d, ESpan *span, 
+void DrawZBuffer(float zi_stepx, float zi_stepy, float zi_start, ESpan *span, 
                  float *zbuffer, I32 width)
 {
     do 
     {
         float *zpixel = zbuffer + width * span->y + span->x_start;
 
-        float invz = zi_stepx * span->x_start + zi_stepy * span->y + zi_d;
+        float invz = zi_stepx * span->x_start + zi_stepy * span->y + zi_start;
         int startX = span->x_start;
         int endX = span->x_start + span->count - 1;
 
@@ -1359,8 +1477,8 @@ void DrawZBuffer(float zi_stepx, float zi_stepy, float zi_d, ESpan *span,
 }
 
 void DrawSurfaces(ISurface *isurfaces, ISurface *endISurf, U8 *pbuffer, 
-                  I32 bytesPerRow, float *zbuffer, I32 zbuffer_width, 
-                  float scaled_mip[MIP_NUM -1], I32 mip_min, float scale_z)
+                  I32 bytesPerRow, float *zbuffer, I32 zbuffer_width, U8 *colormap,
+                  RenderData *renderdata, Camera *camera)
 {
     Cvar *cvar_drawflat = CvarGet("drawflat");
     if (cvar_drawflat->val)
@@ -1372,7 +1490,7 @@ void DrawSurfaces(ISurface *isurfaces, ISurface *endISurf, U8 *pbuffer,
                 continue;
             }
             DrawSolidSurfaces(isurf, pbuffer, bytesPerRow);
-            DrawZBuffer(isurf->zi_stepx, isurf->zi_stepy, isurf->zi_d, 
+            DrawZBuffer(isurf->zi_stepx, isurf->zi_stepy, isurf->zi_start, 
                         isurf->spans, zbuffer, zbuffer_width);
         }
     }
@@ -1406,8 +1524,22 @@ void DrawSurfaces(ISurface *isurfaces, ISurface *endISurf, U8 *pbuffer,
                 Surface *surface = (Surface *)isurf->data;
 
                 float scale = isurf->nearest_invz 
-                            * scale_z * surface->tex_info->mip_adjust;
-                I32 mip_level = GetMipLevelForScale(scaled_mip, mip_min, scale);
+                            * camera->scale_z * surface->tex_info->mip_adjust;
+
+                I32 mip_level = GetMipLevelForScale(renderdata->scaled_mip, 
+                                                    renderdata->mip_min, scale);
+
+                TextureGradient tex_grad = CalcGradients(surface, mip_level, camera);
+
+                SurfaceCache *surfcache = 
+                    CacheSurface(surface, mip_level, &g_lightsystem, renderdata->framecount, colormap);
+
+                DrawSpan8(isurf->spans, tex_grad, isurf->zi_start, isurf->zi_stepx,
+                          isurf->zi_stepy, surfcache->data, surfcache->width, 
+                          pbuffer, bytesPerRow);
+
+                DrawZBuffer(isurf->zi_stepx, isurf->zi_stepy, isurf->zi_start, 
+                            isurf->spans, zbuffer, zbuffer_width);
             }
         }
     }
@@ -1481,8 +1613,7 @@ void ScanEdge(Recti rect, RenderData *renderdata, RenderBuffer *renderbuffer,
         if (currentSpan >= maxSpan)
         {
             DrawSurfaces(renderdata->isurfaces, endISurf, pbuffer, bytesPerRow, zbuffer, 
-                         zbuffer_width, renderdata->scaled_mip, renderdata->mip_min, 
-                         camera->scale_z);
+                         zbuffer_width, renderbuffer->colormap, renderdata, camera);
             
             // clear surface span list
             for (ISurface *surf = &(renderdata->isurfaces[1]); surf < endISurf; ++surf)
@@ -1512,8 +1643,7 @@ void ScanEdge(Recti rect, RenderData *renderdata, RenderBuffer *renderbuffer,
                  &iedgeHead, &iedgeTail);
 
     DrawSurfaces(renderdata->isurfaces, endISurf, pbuffer, bytesPerRow, zbuffer, 
-                 zbuffer_width, renderdata->scaled_mip, renderdata->mip_min, 
-                 camera->scale_z);
+                 zbuffer_width, renderbuffer->colormap, renderdata, camera);
 }
 
 #define NUM_STACK_EDGE 2400
@@ -1585,19 +1715,24 @@ void SetupFrame(RenderData *renderdata, Camera *camera)
     UpdateVisibleLeaves(renderdata);
 }
 
+
+
 RenderBuffer g_renderBuffer;
 RenderData g_renderdata;
 
-void RenderView()
+void RenderView(float dt)
 {
     SetupFrame(&g_renderdata, &g_camera);
+
+    PushLights(&g_lightsystem, dt, g_renderdata.worldModel->nodes,
+               g_renderdata.framecount, g_renderdata.worldModel->surfaces);
 
     EdgeDrawing(&g_renderdata, &g_camera, &g_renderBuffer);
 }
 
 void RenderInit()
 {
-    CvarSet("drawflat", 1);
+    CvarSet("drawflat", 0);
     CvarSet("mipscale", 1);
     CvarSet("mipmin", 0);
 }

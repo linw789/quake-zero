@@ -618,6 +618,8 @@ void *HunkHighAlloc(int size, char *name)
 
     // TODO lw: free cache memory if necessary
 
+    MemSet(hh, 0, size);
+
     hh->sentinel = HUNK_SENTINEL;
     hh->size = size;
     StringCopy(hh->name, 16, name);

@@ -52,7 +52,7 @@ struct FaceDisk
     I16 numEdge;
     I16 texInfoOffset;
 
-    U8 styles[MAX_LIGHT_MAPS];
+    U8 light_styles[MAX_LIGHT_MAPS];
     int lightOffset;
 };
 
@@ -428,6 +428,7 @@ CalcTexCoordExtents(Model *model, Surface *surface)
     int bmaxs[2];
     for (int i = 0; i < 2; ++i)
     {
+        // make bmins and bmaxs discrete at multiples of 16
         bmins[i] = (int)floor(min[i] / 16);
         bmaxs[i] = (int)ceil(max[i] / 16);
         
@@ -478,7 +479,7 @@ ModelLoadFaces(Model *model, U8 *base, Lump lump)
 
         for (int j = 0; j < MAX_LIGHT_MAPS; ++j)
         {
-            surface->styles[j] = faceDisk->styles[j];
+            surface->light_styles[j] = faceDisk->light_styles[j];
         }
 
         if (faceDisk->lightOffset == -1)
@@ -631,8 +632,8 @@ void ModelLoadNodes(Model *model, U8 *base, Lump lump)
             node->minmax[j + 3] = nodeDisk->maxs[j];
         }
         node->plane = model->planes + nodeDisk->planeOffset;
-        node->firstSurface = nodeDisk->firstFace;
-        node->numSurface = nodeDisk->numFace;
+        node->firstsurface = nodeDisk->firstFace;
+        node->numsurface = nodeDisk->numFace;
         node->contents = 0;
 
         for (int j = 0; j < 2; ++j)

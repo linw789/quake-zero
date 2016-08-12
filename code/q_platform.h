@@ -13,6 +13,7 @@ typedef uint16_t U16;
 typedef uint32_t U32;
 typedef uint64_t U64;
 
+typedef I32 Fixed8; // 8 bits for mantissa
 typedef I32 Fixed16; // 16 bits for mantissa
 typedef I32 Fixed20; // 20 bits for mantissa
 
@@ -195,6 +196,7 @@ struct GameMemory
     char gameAssetDir[MAX_OS_PATH_LENGTH];
 
     GameOffScreenBuffer offscreenBuffer;
+    float targetSecondsPerFrame;
 };
 
 #define GAME_INIT(name) void name(GameMemory *memory)

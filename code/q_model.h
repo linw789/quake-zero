@@ -75,28 +75,42 @@ struct Plane
     U8 padding[2];
 };
 
+struct SurfaceCache
+{
+    SurfaceCache *next;
+    SurfaceCache **owner;
+    Texture *texture;
+    I32 bright_adjusts[MAX_LIGHT_MAPS];
+    I32 dlight; // ?
+    I32 size; // including the header
+    U32 width;
+    float mipscale;
+    U8 data[4]; // &data[0] is the starting address of cache data
+};
+
 struct Surface
 {
     Plane *plane;
     TextureInfo *tex_info;
 
-    I32 visibleFrame;
+    SurfaceCache *cachespots[MIP_LEVELS];
 
-    I32 dlightFrame;
-    I32 dlightBits;
+    I32 visibleframe;
+
+    I32 lightframe;
+    // every 1-bit represents a light affectting this surface
+    I32 lightbits;
 
     I32 flags;
 
     I32 firstEdge;
     I32 numEdge;
 
-    // SurfaceCache *cacheSpots[MIP_LEVELS];
-
     I16 uv_min[2];
     I16 uv_extents[2];
 
 
-    U32 styles[MAX_LIGHT_MAPS];
+    U32 light_styles[MAX_LIGHT_MAPS];
     U8 *samples;
 };
 
@@ -106,12 +120,12 @@ struct Node
     // common with leaf
     Node *parent;
     I32 contents; // 0, to differentiate from leaves
-    I32 visibleFrame;
+    I32 visibleframe;
     I16 minmax[6]; // for bounding box culling
 
     // node specific
-    U16 firstSurface;
-    U16 numSurface;
+    U16 firstsurface;
+    U16 numsurface;
     Plane *plane;
     Node *children[2];
 };
