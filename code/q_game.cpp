@@ -1,7 +1,6 @@
 #include "q_platform.h"
 #include "q_common.cpp"
 #include "q_model.cpp"
-#include "q_lightmap.cpp"
 #include "q_render.cpp"
 
 Model *g_worldModel;
@@ -37,26 +36,33 @@ extern "C" GAME_INIT(GameInit)
     
     FileSystemInit(memory->gameAssetDir);
 
-    AllocRenderBuffer(&g_renderBuffer, &memory->offscreenBuffer);
+    AllocRenderBuffer(&g_renderbuffer, &memory->offscreenBuffer);
 
-    g_renderBuffer.colorPalette = FileLoadToLowHunk("gfx/palette.lmp");
-    g_platformAPI.SysSetPalette(g_renderBuffer.colorPalette);
+    // TODO lw: gamma correction
+    g_renderbuffer.colorPalette = FileLoadToLowHunk("gfx/palette.lmp");
+    g_renderbuffer.colormap = FileLoadToLowHunk("gfx/colormap.lmp");
+    RemapColorMap(g_renderbuffer.colorPalette, g_renderbuffer.colormap);
+
+    g_platformAPI.SysSetPalette(g_renderbuffer.colorPalette);
 
     TextureCreateDefault(g_defaultTexture);
 
     ModelInit();
 
+    /*
     g_worldModel = ModelLoadForName("maps/e1m3.bsp");
-
-    CvarSet("moveforward", 0.0f);
-    CvarSet("movebackward", 0.0f);
-
     g_camera.position = {-735.968750f, -1591.96875f, 110.031250f};
-    // x right, y forward, z up
     g_camera.angles = {0, 0.0f, -90.0f};
+    */
+
+    g_worldModel = ModelLoadForName("maps/start.bsp");
+    g_camera.position = {544.6f, 290.0f, 50.0f};
+    g_camera.angles = {0, 0.0f, -90.0f};
+
+    // x right, y forward, z up
     AngleVectors(g_camera.angles, &g_camera.rotx, &g_camera.roty, &g_camera.rotz);
 
-    Recti screenRect = {0, 0, 640, 480};
+    Recti screenRect = {0, 0, 320, 240};
     float fovx = 90.0f;
 
     g_renderdata.worldModel = g_worldModel;
@@ -76,24 +82,27 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     Vec3f right = g_camera.rotx;
     //right.z = 0;
     right = Vec3Normalize(right);
+
+    float move_speed = 5.0f;
+
     for (I32 i = 0; i < game_input->kevt_count; ++i)
     {
         KeyState key = game_input->key_events[i];
         if (key.key == 'w' && key.is_down)
         {
-            g_camera.position += forward * 3.0f;
+            g_camera.position += forward * move_speed;
         }
         else if (key.key == 's' && key.is_down)
         {
-            g_camera.position -= forward * 3.0f;
+            g_camera.position -= forward * move_speed;
         }
         else if (key.key == 'a' && key.is_down)
         {
-            g_camera.position -= right * 3.0f;
+            g_camera.position -= right * move_speed;
         }
         else if (key.key == 'd' && key.is_down)
         {
-            g_camera.position += right * 3.0f;
+            g_camera.position += right * move_speed;
         }
     }
 
@@ -119,8 +128,8 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     {
         degree = -85.0f;
     }
-
     g_camera.angles.x = degree;
+
     AngleVectors(g_camera.angles, &g_camera.rotx, &g_camera.roty, &g_camera.rotz);
 
     RenderView(g_targetSecondsPerFrame);

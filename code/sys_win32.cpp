@@ -207,7 +207,7 @@ Win32UnloadGameCode(Win32GameCode *gameCode)
 }
 
 INTERNAL_LINKAGE int 
-Win32DisplayBufferInWindow(HDC deviceContext, Win32ScreenBuffer *screenBuffer, Win32WindowSize windowSize)
+Win32DisplayBufferInWindow(HDC deviceContext, Win32ScreenBuffer *screenBuffer, Win32WindowSize window_size)
 {
     int result = 0;
 
@@ -216,9 +216,9 @@ Win32DisplayBufferInWindow(HDC deviceContext, Win32ScreenBuffer *screenBuffer, W
 
 #if 0
     // top
-    PatBlt(deviceContext, 0, 0, windowSize.width, offsetY, BLACKNESS);
+    PatBlt(deviceContext, 0, 0, window_size.width, offsetY, BLACKNESS);
     // left
-    PatBlt(deviceContext, 0, 0, offsetX, windowSize.height, BLACKNESS);
+    PatBlt(deviceContext, 0, 0, offsetX, window_size.height, BLACKNESS);
     // bottom
     PatBlt(deviceContext, 0, screenBuffer->height + offsetY, 
             windowSize.width, windowSize.height, BLACKNESS);
@@ -229,7 +229,7 @@ Win32DisplayBufferInWindow(HDC deviceContext, Win32ScreenBuffer *screenBuffer, W
 #endif
     // drawing pixel 1-to-1 without stretch
     result = StretchDIBits(deviceContext, 
-                           0, 0, screenBuffer->width, screenBuffer->height,
+                           0, 0, window_size.width, window_size.height,
                            0, 0, screenBuffer->width, screenBuffer->height, 
                            screenBuffer->memory,
                            (BITMAPINFO *)&screenBuffer->bitmapInfo, 
@@ -542,8 +542,8 @@ WinMain(HINSTANCE instance, HINSTANCE preInstance, LPSTR cmdline, int showCode)
     U64 startCounter = Win32GetWallClock();
 
     // set offscreen buffer size
-    gameMemory.offscreenBuffer.width = 640;
-    gameMemory.offscreenBuffer.height = 480;
+    gameMemory.offscreenBuffer.width = 320;
+    gameMemory.offscreenBuffer.height = 240;
     gameMemory.offscreenBuffer.bytesPerPixel = 1;
     int widthbytes = gameMemory.offscreenBuffer.width * gameMemory.offscreenBuffer.bytesPerPixel;
     gameMemory.offscreenBuffer.bytesPerRow = (widthbytes + sizeof(LONG) - 1) & ~(sizeof(LONG) -1);
@@ -554,15 +554,17 @@ WinMain(HINSTANCE instance, HINSTANCE preInstance, LPSTR cmdline, int showCode)
 
     // move the window to the center of the screen
     {
+        int window_width = g_screenBuffer.width * 2; 
+        int window_height = g_screenBuffer.height * 2; 
         RECT rect = {0};
         const HWND hDesktop = GetDesktopWindow();
         GetWindowRect(hDesktop, &rect);
-        int left = (rect.right - g_screenBuffer.width) / 2;
-        int top = (rect.bottom - g_screenBuffer.height) / 2;
+        int left = (rect.right - window_width) / 2;
+        int top = (rect.bottom - window_height) / 2;
         rect.left = left;
         rect.top = top;
-        rect.right = g_screenBuffer.width + rect.left - 1;
-        rect.bottom = g_screenBuffer.height + rect.top - 1;
+        rect.right = window_width + rect.left - 1;
+        rect.bottom = window_height + rect.top - 1;
         AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, FALSE);
         // TODO lw: We could make the window resizable, because the frame buffer
         // and the z-buffer are allocated at high hunk. Resize them won't affect

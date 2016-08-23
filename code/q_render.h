@@ -9,6 +9,13 @@ struct RenderBuffer
     I32 bytesPerPixel;
     I32 bytesPerRow;
     U8 *colorPalette;
+    /*
+    0  ...  255 -->color 
+    1  ...  1  
+    .  ...  .   ^
+    .  ...  .   | shades
+    63 ... 63   |
+    */
     U8 *colormap;
     U8 *backbuffer;
     float *zbuffer;
@@ -32,6 +39,7 @@ struct Recti
 
 struct Camera
 {
+    Recti screen_rect;
     Vec2f screen_center;
     Vec2f screen_clamp_min;
     Vec2f screen_clamp_max;

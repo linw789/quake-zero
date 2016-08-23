@@ -43,6 +43,14 @@ struct TextureInfoDisk
     int flags;
 };
 
+struct MipTexture
+{
+    char name[16];
+    U32 width;
+    U32 height;
+    U32 offsets[MIP_LEVELS];
+};
+
 struct FaceDisk
 {
     I16 planeOffset;
@@ -230,7 +238,7 @@ ModelLoadPlanes(Model *model, U8 *base, Lump lump)
         g_platformAPI.SysError("incorrect lump size for planes");
     }
 
-    int planeCount = lump.length / sizeof(*planeDisk);
+    I32 planeCount = lump.length / sizeof(*planeDisk);
     Plane *plane = NULL;
     
     // TODO lw: why allocated twice amount of memory?
@@ -239,10 +247,10 @@ ModelLoadPlanes(Model *model, U8 *base, Lump lump)
     model->planes = plane;
     model->numPlane = planeCount;
 
-    for (int i = 0; i < planeCount; ++i, ++plane, ++planeDisk)
+    for (I32 i = 0; i < planeCount; ++i, ++plane, ++planeDisk)
     {
         U8 bits = 0;
-        for (int j = 0; j < 3; ++j)
+        for (I32 j = 0; j < 3; ++j)
         {
             plane->normal[j] = planeDisk->normal[j];
             if (plane->normal[j] < 0)
@@ -313,6 +321,20 @@ ModelLoadTextures(Model *model, U8 *base, Lump lump)
     }
 
     // TODO lw: load animations?
+}
+
+void
+ModelLoadLighting(Model *model, U8 *base, Lump lump)
+{
+    if (lump.length == 0)
+    {
+        model->light_data = NULL;
+    }
+    else
+    {
+        model->light_data = (U8 *)HunkLowAlloc(lump.length, model->name);
+        MemCpy(model->light_data, base + lump.offset, lump.length);
+    }
 }
 
 void
@@ -409,7 +431,7 @@ CalcTexCoordExtents(Model *model, Surface *surface)
         {
             min.u = u;
         }
-        else if (u > max.u)
+        if (u > max.u)
         {
             max.u = u;
         }
@@ -418,7 +440,7 @@ CalcTexCoordExtents(Model *model, Surface *surface)
         {
             min.v = v;
         }
-        else if (v > max.v)
+        if (v > max.v)
         {
             max.v = v;
         }
@@ -434,6 +456,8 @@ CalcTexCoordExtents(Model *model, Surface *surface)
         
         surface->uv_min[i] = (I16)(bmins[i] * 16);
         surface->uv_extents[i] = (I16)((bmaxs[i] - bmins[i]) * 16);
+
+        ASSERT(surface->uv_extents[i] > 0);
             
         if (!(surface->tex_info->flags & TEX_SPECIAL) && surface->uv_extents[i] > 256)
         {
@@ -451,7 +475,7 @@ ModelLoadFaces(Model *model, U8 *base, Lump lump)
         g_platformAPI.SysError("incorrect lump size for surface");
     }
 
-    int count = lump.length / sizeof(*faceDisk);
+    I32 count = lump.length / sizeof(*faceDisk);
 
     Surface *surface = NULL;
     surface = (Surface *)HunkLowAlloc(count * sizeof(*surface), model->name);
@@ -459,7 +483,7 @@ ModelLoadFaces(Model *model, U8 *base, Lump lump)
     model->surfaces = surface;
     model->numSurface = count; 
 
-    for (int i = 0; i < count; ++i, ++faceDisk, ++surface)
+    for (I32 i = 0; i < count; ++i, ++faceDisk, ++surface)
     {
         surface->firstEdge = faceDisk->firstEdge;
         surface->numEdge = faceDisk->numEdge;
@@ -473,11 +497,22 @@ ModelLoadFaces(Model *model, U8 *base, Lump lump)
         surface->plane = model->planes + faceDisk->planeOffset;
         surface->tex_info = model->tex_info + faceDisk->texInfoOffset;
 
+#if 0 // debug
+        Vec3f normal = surface->plane->normal;
+        I32 notzero_count = 0;
+        if (normal.x != 0) notzero_count++;
+        if (normal.y != 0) notzero_count++;
+        if (normal.z != 0) notzero_count++;
+        if (notzero_count > 1)
+        {
+            float test = normal.x;
+        }
+#endif
+
         CalcTexCoordExtents(model, surface);
 
         // load lighting info
-
-        for (int j = 0; j < MAX_LIGHT_MAPS; ++j)
+        for (I32 j = 0; j < MAX_LIGHT_MAPS; ++j)
         {
             surface->light_styles[j] = faceDisk->light_styles[j];
         }
@@ -488,7 +523,7 @@ ModelLoadFaces(Model *model, U8 *base, Lump lump)
         }
         else
         {
-            surface->samples = model->lightData + faceDisk->lightOffset;
+            surface->samples = model->light_data + faceDisk->lightOffset;
         }
 
         // set drawing flags
@@ -499,7 +534,7 @@ ModelLoadFaces(Model *model, U8 *base, Lump lump)
         else if (StringNCompare(surface->tex_info->texture->name, "*", 1) == 0)
         {
             surface->flags |= SURF_DRAW_TURB | SURF_DRAW_TILED;
-            for (int j = 0; j < 2; ++j)
+            for (I32 j = 0; j < 2; ++j)
             {
                 surface->uv_min[j] = 16384;
                 surface->uv_extents[j] = -8192;
@@ -898,7 +933,7 @@ void ModelLoadBrushModel(Model *model, void *buffer)
     ModelLoadEdges(model, base, headerDisk->lumps[ModelLump::EDGE]);
     ModelLoadSurfaceEdges(model, base, headerDisk->lumps[ModelLump::SURFACEEDGE]);
     ModelLoadTextures(model, base, headerDisk->lumps[ModelLump::TEXTURE]);
-    //ModelLoadLighting(model, base, headerDisk->lumps[ModelLump::LIGHTING]);
+    ModelLoadLighting(model, base, headerDisk->lumps[ModelLump::LIGHTING]);
     ModelLoadPlanes(model, base, headerDisk->lumps[ModelLump::PLANE]);
     ModelLoadTextureInfo(model, base, headerDisk->lumps[ModelLump::TEXTUREINFO]);
     ModelLoadFaces(model, base, headerDisk->lumps[ModelLump::FACE]);

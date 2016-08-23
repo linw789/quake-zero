@@ -41,25 +41,25 @@ inline float SquareRoot(float x)
     return result;
 }
 
-float InvSquareRoot(float x)
+inline float InvSquareRoot(float x)
 {
     float result = 1.0f / SquareRoot(x);
     return result;
 }
 
-float Sine(float x)
+inline float Sine(float x)
 {
     float result = sinf(x);
     return result;
 }
 
-float Cosine(float x)
+inline float Cosine(float x)
 {
     float result = cosf(x);
     return result;
 }
 
-float Tangent(float x)
+inline float Tangent(float x)
 {
     float result = tanf(x);
     return result;
@@ -229,6 +229,7 @@ inline Vec3f operator*(const Mat3 m3, const Vec3f v3)
 
 void AngleVectors(Vec3f angles, Vec3f *vx, Vec3f *vy, Vec3f *vz)
 {
+#if 1
     float radian = 0;
     radian = DegreeToRadian(angles[0]);
     float sinx = Sine(radian);
@@ -241,12 +242,44 @@ void AngleVectors(Vec3f angles, Vec3f *vx, Vec3f *vy, Vec3f *vz)
     float cosz = Cosine(radian);
 
     /*
-     Simple trigonometry could be used to build rotation matrices around the X, 
-     Y, Z axes in world space. And since we are always rotating around the world  
-     Z axis, we could rotate around the local x axis first which is coincident 
-     with world x axis initially, then rotate around world axis.
+    Simple trigonometry could be used to build rotation matrices around the X, 
+    Y, Z axes in world space. And since we are always rotating around the world  
+    Z axis, we could rotate around the local x axis first which is coincident 
+    with world x axis initially, then rotate around world axis.
     */
     *vx = {cosz, -sinz, 0};
     *vy = {sinz * cosx, cosz * cosx, sinx};
     *vz = {-sinz * sinx, -cosz * sinx, cosx};
+#endif
+
+#if 0
+    I32 PITCH = 0, YAW = 1, ROLL = 2;
+    float M_PI = 3.14159265358979323846f;
+
+    float		angle;
+	float		sr, sp, sy, cr, cp, cy;
+	
+	// lw: y
+	angle = angles[YAW] * (M_PI*2 / 360); // yaw angle in radius
+	sy = Sine(angle); // sine_yaw
+	cy = Cosine(angle); // cosine_yaw
+	// lw: x
+	angle = angles[PITCH] * (M_PI*2 / 360);
+	sp = Sine(angle); // sine_pitch
+	cp = Cosine(angle); // cosine_pitch
+	// lw: z
+	angle = angles[ROLL] * (M_PI*2 / 360);
+	sr = Sine(angle); // sine_roll
+	cr = Cosine(angle); // cosine_roll
+
+	vy->x = cp*cy;
+	vy->y = cp*sy;
+	vy->z = -sp;
+	vx->x = (-sr*sp*cy+cr*sy);
+	vx->y = (-sr*sp*sy-cr*cy);
+	vx->z = -sr*cp;
+	vz->x = (cr*sp*cy+sr*sy);
+	vz->y = (cr*sp*sy-sr*cy);
+	vz->z = cr*cp;
+#endif
 }

@@ -30,5 +30,5 @@ struct LightSystem
     LightStyle styles[MAX_LIGHT_STYLE_NUM];
     Light lights[MAX_LIGHT_NUM];
 
-    Fixed8 blocklights[18][18];
+    Fixed8 blocklights[18 * 18];
 };

@@ -41,14 +41,6 @@ struct Texture
     U32 offsets[MIP_LEVELS]; // 4 mip maps stored
 };
 
-struct MipTexture
-{
-    char name[16];
-    U32 width;
-    U32 height;
-    U32 offsets[MIP_LEVELS];
-};
-
 struct TextureInfo
 {
     Vec3f u_axis;
@@ -84,6 +76,7 @@ struct SurfaceCache
     I32 dlight; // ?
     I32 size; // including the header
     U32 width;
+    U32 height; // debug
     float mipscale;
     U8 data[4]; // &data[0] is the starting address of cache data
 };
@@ -230,7 +223,7 @@ struct Model
     // run-length encoded visibility data for all leaves
     U8 *visibility;
 
-    U8 *lightData;
+    U8 *light_data;
     char *entities;
 
     // additional model data, only access through Mod_Extradata

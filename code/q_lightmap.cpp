@@ -79,6 +79,8 @@ SurfaceCache *SurfaceCacheAlloc(I32 width, I32 size)
 {
     if (width < 0 || width > 256)
     {
+        ASSERT(width < 256);
+        ASSERT(width > 0);
         g_platformAPI.SysError("SurfaceCacheAlloc: bad width");
     }
     if (size <= 0 || size > 0x10000)
@@ -105,7 +107,8 @@ SurfaceCache *SurfaceCacheAlloc(I32 width, I32 size)
     SurfaceCache *new_cache = g_surfcache_memory.rover;
     if (new_cache->owner)
     {
-        *(new_cache->owner) = NULL; // unlink surface from this surfacecache
+        // unlink (surface->cachespots) from this surfacecache
+        *(new_cache->owner) = NULL; 
     }
     while (new_cache->size < total_size)
     {
@@ -118,10 +121,10 @@ SurfaceCache *SurfaceCacheAlloc(I32 width, I32 size)
         new_cache->size += g_surfcache_memory.rover->size; 
     }
 
-    // if new_cache is too big, curve out the rest
+    // if new_cache is too big, carve out the rest
     if (new_cache->size - total_size > sizeof(SurfaceCache) + 256)
     {
-        g_surfcache_memory.rover = (SurfaceCache *)((U8 *)new_cache + new_cache->size);
+        g_surfcache_memory.rover = (SurfaceCache *)((U8 *)new_cache + total_size);
         g_surfcache_memory.rover->size = new_cache->size - total_size;
         g_surfcache_memory.rover->next = new_cache->next;
         g_surfcache_memory.rover->owner = NULL;
@@ -151,16 +154,15 @@ struct LightSurface
     I32 mip_level;
     I32 mip_width_in_texel; 
     I32 mip_height_in_texel;
+
+    I32 lightblocks_width;
+    I32 lightblocks_height;
 };
 
 void AddDynamicLights(LightSurface *lightsurf, LightSystem *lightsystem)
 {
     Surface *surface = lightsurf->surface;
     TextureInfo *texinfo = surface->tex_info;
-
-    // light sample at every 16 texel
-    I32 lightsample_width = (surface->uv_extents[0] >> 4) + 1;
-    I32 lightsample_height = (surface->uv_extents[1] >> 4) + 1;
 
     for (I32 light_i = 0; light_i < MAX_LIGHT_NUM; ++light_i)
     {
@@ -194,7 +196,7 @@ void AddDynamicLights(LightSurface *lightsurf, LightSystem *lightsystem)
         I32 u_delta = 0, v_delta = 0;
         float dist = 0;
         // uv starts at surface->uv_min
-        for (I32 v_i = 0; v_i < lightsample_height; ++v_i)
+        for (I32 v_i = 0; v_i < lightsurf->lightblocks_height; ++v_i)
         {
             v_delta = (I32)(light_v - v_i * 16);
             if (v_delta < 0)
@@ -202,7 +204,7 @@ void AddDynamicLights(LightSurface *lightsurf, LightSystem *lightsystem)
                 v_delta = -v_delta;
             }
 
-            for (I32 u_i = 0; u_i < lightsample_width; ++u_i)
+            for (I32 u_i = 0; u_i < lightsurf->lightblocks_width; ++u_i)
             {
                 u_delta = (I32)(light_u - u_i * 16);
                 if (u_delta < 0)
@@ -222,7 +224,7 @@ void AddDynamicLights(LightSurface *lightsurf, LightSystem *lightsystem)
                 if (dist < minlight)
                 {
                     // TODO lw: ?
-                    ((Fixed8 *)lightsystem->blocklights)[v_i * lightsample_width + u_i] = 
+                    ((Fixed8 *)lightsystem->blocklights)[v_i * lightsurf->lightblocks_width + u_i] = 
                         (Fixed8)((dist_delta - dist) * 256);
                 }
             }
@@ -235,21 +237,19 @@ void BuildLightMap(LightSurface *lightsurf, LightSystem *lightsystem, I32 framec
 {
     Surface *surface = lightsurf->surface;
 
-    // lighting is sampled at every 16 texels
-    I32 lightsample_width = (surface->uv_extents[0] >> 4) + 1;
-    I32 lightsample_height = (surface->uv_extents[1] >> 4) + 1;
-    I32 lightsample_size = lightsample_width * lightsample_height;
+    I32 lightsample_size = lightsurf->lightblocks_width * lightsurf->lightblocks_height;
 
     U8 *lightsamples = surface->samples;
 
-    Cvar *ambient_light = CvarGet("ambientlight");
+    // Cvar *ambient_light = CvarGet("ambientlight");
 
     Fixed8 *blocklights = (Fixed8 *)lightsystem->blocklights;
 
     // clear to ambient
     for (I32 i = 0; i < lightsample_size; ++i)
     {
-        blocklights[i] = (U32)ambient_light->val;
+        // blocklights[i] = (U32)ambient_light->val;
+        blocklights[i] = 0 << 8;
     }
     if (lightsamples)
     {
@@ -260,7 +260,8 @@ void BuildLightMap(LightSurface *lightsurf, LightSystem *lightsystem, I32 framec
             U32 bright_adjust = lightsurf->bright_adjusts[lightmap];
             for (I32 i = 0; i < lightsample_size; ++i)
             {
-                blocklights[i] += lightsamples[i] * bright_adjust;
+                // blocklights[i] += lightsamples[i] * bright_adjust;
+                blocklights[i] += lightsamples[i] << 8;
             }
             lightsamples += lightsample_size;
         }
@@ -291,17 +292,17 @@ void LightTextureSurface(LightSurface *lightsurf, LightSystem *lightsystem,
     U8 *miptex = (U8 *)texture + texture->offsets[lightsurf->mip_level];
 
     // sample at every 16 texel
-    I32 lightsample_width = (lightsurf->surface->uv_extents[0] >> 4) + 1;
+    I32 lightsample_width = lightsurf->lightblocks_width;
 
     // width equals height
     I32 lightblocksize_in_texel = 16 >> lightsurf->mip_level;
 
-    I32 temp_divshift = 4 - lightsurf->mip_level;
+    I32 mip_divshift = 4 - lightsurf->mip_level;
     // lightblock_num_h = lightsurf->mip_texel_width / lightblocksize_in_texel
-    I32 lightblock_num_h = lightsurf->mip_width_in_texel >> temp_divshift;
-    I32 lightblock_num_v = lightsurf->mip_height_in_texel >> temp_divshift;
+    I32 lightblock_num_h = lightsurf->mip_width_in_texel >> mip_divshift;
+    I32 lightblock_num_v = lightsurf->mip_height_in_texel >> mip_divshift;
 
-    // variables of mipmapped texture
+    // dimensions of mipmapped texture
     I32 miptex_width = texture->width >> lightsurf->mip_level;
     I32 miptex_height = texture->height >> lightsurf->mip_level;
     I32 miptex_size = miptex_width * miptex_height;
@@ -310,58 +311,58 @@ void LightTextureSurface(LightSurface *lightsurf, LightSystem *lightsystem,
     I32 tex_offset_v = lightsurf->surface->uv_min[1];
 
     // wrap tex_offset_u around texture boundary
-    tex_offset_u = ((tex_offset_u >> lightsurf->mip_level) + (miptex_width << 16))
-                 % miptex_width;
-    tex_offset_v = ((tex_offset_v >> lightsurf->mip_level) + (miptex_height << 16))
-                       % miptex_height;
+    // (miptex_width << 16) guarantees positive value for %
+    tex_offset_u = ((tex_offset_u >> lightsurf->mip_level) + (miptex_width << 16)) % miptex_width;
+    tex_offset_v = ((tex_offset_v >> lightsurf->mip_level) + (miptex_height << 16)) % miptex_height;
 
     U8 *tex_src = &miptex[tex_offset_v * miptex_width];
     I32 tex_src_stepback = miptex_width * miptex_height;
     U8 *tex_src_max = miptex + tex_src_stepback;
 
-    U8 *surfcache_first_row = lightsurf->surface_cache_data;
+    U8 *surfcache_row = lightsurf->surface_cache_data;
 
     Fixed8 *blocklights = (Fixed8 *)lightsystem->blocklights;
 
     for (I32 u = 0; u < lightblock_num_h; ++u)
     {
         Fixed8 *lightsample_row = blocklights + u;
-        U8 *surfcache_dest = surfcache_first_row;
-        U8 *tex_src_start = tex_src + tex_offset_u;
+        U8 *surfcache_dest = surfcache_row;
+        U8 *tex_src_row = tex_src + tex_offset_u;
 
         for (I32 v = 0; v < lightblock_num_v; ++v)
         {
             Fixed8 lightsample_left = lightsample_row[0];
             Fixed8 lightsample_right = lightsample_row[1];
-            lightsample_row += lightblocksize_in_texel;
-            // Fixed8 to I32
-            I32 lightsample_left_vstep = (lightsample_row[0] - lightsample_left) >> 4;
-            I32 lightsample_right_vstep = (lightsample_row[1] - lightsample_right) >> 4;
+            lightsample_row += lightsample_width;
+
+            I32 lightsample_left_vstep = (lightsample_row[0] - lightsample_left) >> mip_divshift;
+            I32 lightsample_right_vstep = (lightsample_row[1] - lightsample_right) >> mip_divshift;
 
             // bilinearly interpolate texels within the lightblock
             for (I32 y = 0; y < lightblocksize_in_texel; ++y)
             {
-                // Fixed8 to I32
-                I32 light_step = (lightsample_right - lightsample_left) >> 4;
+                I32 light_step = (lightsample_right - lightsample_left) >> mip_divshift;
                 Fixed8 light_val = lightsample_left;
 
                 for (I32 x = 0; x < lightblocksize_in_texel; ++x)
                 {
-                    U8 texel = tex_src_start[x];
+                    U8 texel = tex_src_row[x];
+                    // first 0-255 bits determines the color of the pixel, and 
+                    //(light_val & 0xff00) detemines the shade.
                     I32 color_index = (light_val & 0xff00) + texel;
                     surfcache_dest[x] = colormap[color_index];
                     light_val += light_step;
                 }
 
-                tex_src_start += miptex_width; // move up one row
                 lightsample_left += lightsample_left_vstep;
                 lightsample_right += lightsample_right_vstep;
-                surfcache_dest += lightsurf->mip_width_in_texel;
+                tex_src_row += miptex_width; // move up one row
+                surfcache_dest += lightsurf->mip_width_in_texel; // move up one row
             }
 
-            if (tex_src_start >= tex_src_max)
+            if (tex_src_row >= tex_src_max)
             {
-                tex_src_start -= tex_src_stepback;
+                tex_src_row -= tex_src_stepback;
             }
         }
 
@@ -371,22 +372,31 @@ void LightTextureSurface(LightSurface *lightsurf, LightSystem *lightsystem,
             tex_offset_u = 0;
         }
 
-        surfcache_first_row += lightblocksize_in_texel;
+        surfcache_row += lightblocksize_in_texel;
     }
 }
 
-SurfaceCache *CacheSurface(Surface *surface, int miplevel, LightSystem *lightsystem, 
+Texture *AnimateTexture(Texture *base_tex)
+{
+    return base_tex;
+}
+
+SurfaceCache *CacheSurface(Surface *surface, I32 miplevel, LightSystem *lightsystem, 
                            I32 framecount, U8 *colormap)
 {
     LightSurface lightsurf;
 
     // if the surface is animating or flashing, flush the code
-    // AnimateTexture();
+    lightsurf.texture = AnimateTexture(surface->tex_info->texture);
 
     lightsurf.bright_adjusts[0] = lightsystem->styles[surface->light_styles[0]].cur_value;
     lightsurf.bright_adjusts[1] = lightsystem->styles[surface->light_styles[1]].cur_value;
     lightsurf.bright_adjusts[2] = lightsystem->styles[surface->light_styles[2]].cur_value;
     lightsurf.bright_adjusts[3] = lightsystem->styles[surface->light_styles[3]].cur_value;
+
+    // light sample at every 16 texel
+    lightsurf.lightblocks_width = (surface->uv_extents[0] >> 4) + 1;
+    lightsurf.lightblocks_height = (surface->uv_extents[1] >> 4) + 1;
 
     SurfaceCache *surface_cache = surface->cachespots[miplevel];
 
@@ -403,7 +413,7 @@ SurfaceCache *CacheSurface(Surface *surface, int miplevel, LightSystem *lightsys
 
     float surf_scale = 1.0f / (1 << miplevel);
     lightsurf.mip_level = miplevel;
-    // texture width and height are mip adjusted and cropped to surface size
+    // surface cache's width and height are mip adjusted and cropped to surface size
     lightsurf.mip_width_in_texel = surface->uv_extents[0] >> miplevel;
     lightsurf.mip_height_in_texel = surface->uv_extents[1] >> miplevel;
 
@@ -412,9 +422,10 @@ SurfaceCache *CacheSurface(Surface *surface, int miplevel, LightSystem *lightsys
         I32 total_size = lightsurf.mip_width_in_texel * lightsurf.mip_height_in_texel;
         surface_cache = SurfaceCacheAlloc(lightsurf.mip_width_in_texel, total_size);
 
+        surface_cache->height = lightsurf.mip_height_in_texel;
         surface->cachespots[miplevel] = surface_cache;
         surface_cache->owner = &(surface->cachespots[miplevel]);
-        surface_cache->mipscale = surf_scale;
+        // surface_cache->mipscale = surf_scale;
     }
 
     surface_cache->dlight = surface->lightframe == framecount ? 1 : 0; // TODO lw: ?

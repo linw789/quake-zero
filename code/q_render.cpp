@@ -38,6 +38,8 @@
 // for data alignment on function stack
 #define CACHE_SIZE 64
 
+#include "q_lightmap.cpp"
+
 // TODO lw: why these numbers, empirical?
 float g_base_mip[MIP_NUM - 1] = {1.0f, 0.5f * 0.8f, 0.25f * 0.8f};
 
@@ -45,6 +47,8 @@ Camera g_camera;
 
 void ResetCamera(Camera *camera, Recti screen_rect, float fovx)
 {
+    camera->screen_rect = screen_rect;
+
     // Subtracting 0.5f to make center.x sits between pixels if screen width is 
     // an even number, on the center pixel if an odd number.
     camera->screen_center.x = screen_rect.x + screen_rect.width / 2.0f - 0.5f;
@@ -61,8 +65,8 @@ void ResetCamera(Camera *camera, Recti screen_rect, float fovx)
     camera->scale_z = screen_rect.width * 0.5f / tanx;
     camera->scale_invz = 1.0f / camera->scale_z;
 
-    float invAspect = (float)(screen_rect.height) / (float)(screen_rect.width);
-    float tany = tanx * invAspect;
+    float inv_aspect = (float)(screen_rect.height) / (float)(screen_rect.width);
+    float tany = tanx * inv_aspect;
 
     // left side frustum clip
     camera->frustumPlanes[0].normal = Vec3Normalize({1.0f / tanx, 0, 1.0f});
@@ -94,17 +98,14 @@ inline Vec3f TransformPointToView(const Camera *camera, Vec3f point)
     return result;
 }
 
-inline Vec3f TransformDirectionToView(const Camera *camera, Vec3f dir)
+inline Vec3f TransformDirectionToView(const Camera *camera, Vec3f dir_world)
 {
-    Vec3f result;
+    Vec3f result_view = {0};
     /*
     Nw, Nv are normals of the plane in world and view space respectively.
-    Pw, Pv are points on the plane in world and view space respectively.
     rot is the rotation matrix of the camera
 
-    Nw * Pw = 0, Nv * Pv = 0, Pv = inverse(rot) * Pw
-    Nw * inverse(inverse(rot)) * inverse(rot) * Pw = 0
-    --> Nv = Nw * inverse(inverse(rot))
+    Nv = inverse(rot) * Nw
     
     quake's world coordinate system
             ^ z+  
@@ -122,46 +123,44 @@ inline Vec3f TransformDirectionToView(const Camera *camera, Vec3f dir)
             | /
             |--------> x+
 
-    It's not the transformation of coordinate system but just swap of axis 
+    It's not the transformation of coordinate system but just swapping of axis 
     notation
     
     To transform points from world space to view space, we first transform 
     points normally, then swap y and z values.
     */
-    result.x = Vec3Dot(dir, camera->rotx);
-    result.y = Vec3Dot(dir, camera->rotz);
-    result.z = Vec3Dot(dir, camera->roty);
+    result_view.x = Vec3Dot(dir_world, camera->rotx);
+    result_view.y = Vec3Dot(dir_world, camera->rotz);
+    result_view.z = Vec3Dot(dir_world, camera->roty);
 
-    return result;
+    return result_view;
 }
 
 void TransformFrustum(Camera *camera)
 {
-    Vec3f normal = {0};
-    Vec3f normal_world = {0};
+    Vec3f n_view = {0};
+    Vec3f n_world = {0};
     /*
     Nw, Nv are normals of the plane in world and view space respectively.
-    Pw, Pv are points on the plane in world and view space respectively.
     rot is the rotation matrix of the camera
 
-    Nw * Pw = 0, Nv * Pv = 0, Pw = rot * Pv
-    Nv * inverse(rot) * (rot) * Pv = 0
-    --> Nw = Nv * inverse(rot)
+    Nw = rot * Nv
 
     */
     for (int i = 0; i < 4; ++i)
     {
-        normal = camera->frustumPlanes[i].normal;
+        n_view = camera->frustumPlanes[i].normal;
+    
+        // Swap normal.y and normal.z because in quake world space z-axis is the 
+        // one pointing up, but in view space z-axis points inwards.
+        n_world.x = n_view.x * camera->rotx[0] + n_view.z * camera->roty[0] + n_view.y * camera->rotz[0]; 
+        n_world.y = n_view.x * camera->rotx[1] + n_view.z * camera->roty[1] + n_view.y * camera->rotz[1]; 
+        n_world.z = n_view.x * camera->rotx[2] + n_view.z * camera->roty[2] + n_view.y * camera->rotz[2];
 
-        // swap y and z
-        normal_world.x = normal.x * camera->rotx[0] + normal.z * camera->roty[0] + normal.y * camera->rotz[0]; 
-        normal_world.y = normal.x * camera->rotx[1] + normal.z * camera->roty[1] + normal.y * camera->rotz[1]; 
-        normal_world.z = normal.x * camera->rotx[2] + normal.z * camera->roty[2] + normal.y * camera->rotz[2];
-
-        camera->worldFrustumPlanes[i].normal = normal_world;
+        camera->worldFrustumPlanes[i].normal = n_world;
         
         // camera position is on every frustum plane
-        camera->worldFrustumPlanes[i].distance = Vec3Dot(camera->position, normal_world);
+        camera->worldFrustumPlanes[i].distance = Vec3Dot(camera->position, n_world);
     }
 
     camera->worldFrustumPlanes[0].leftEdge = 1;
@@ -433,6 +432,8 @@ EmitIEdgeResult EmitIEdge(Vec3f v0, Vec3f v1, B32 onlyNearInvZ, U32 *iedge_cache
     view_invz1 = 1.0f / view_vert1.z;
     float scale = camera->scale_z * view_invz1;
     screen_x1 = camera->screen_center.x + scale * view_vert1.x;
+    // Transform y from view space(y axis pointing up) to screen space(y axis 
+    // pointing down).
     screen_y1 = camera->screen_center.y - scale * view_vert1.y;
 
     //ASSERT(screen_y1 > (camera->screen_clamp_min.y - 0.5f)
@@ -720,7 +721,7 @@ void RenderFace(Surface *surface, RenderData *renderdata, Camera *camera,
     isurface->key = renderdata->currentKey++;
     isurface->spans = NULL;
 
-    Vec3f normal_view = TransformDirectionToView(camera, surface->plane->normal);
+    Vec3f n_view = TransformDirectionToView(camera, surface->plane->normal);
 
     /* 
     Affine transformation won't change the distance.
@@ -731,27 +732,40 @@ void RenderFace(Surface *surface, RenderData *renderdata, Camera *camera,
     */
     float inv_dist = 1.0f / (surface->plane->distance - Vec3Dot(camera->position, surface->plane->normal));
 
-    /* wl:
+    /* 
 	Instead of calculating 1/z by interpolating between edges,
-	we use plane equation to get 1/z.
+	we use plane equation to get 1/z. 
+
+    normal = (a, b, c)
+    z_s is the z value of the projecting plane that's perpendicular to z axis, ...
+    x_s and y_s are values the projecting plane in view space
 
 	a*x + b*y + c*z - d = 0                 eq.1
 	x/x_s = z/z_s --> x = (z/z_s) * x_s     eq.2
-	y/-y_s = z/z_s --> y = (z/z_s) * -y_s   eq.3
+	y/y_s = z/z_s --> y = (z/z_s) * y_s   eq.3
 
 	put eq.2 and eq.3 into eq.1, we get
-	1/z = ((a/z_s) * x_s - (b/z_s) * y_s + c) / d
-		= ((a/z_s)/d * x_s) - ((b/z_s)/d * y_s) + c/d
+	1/z = ((a/z_s) * x_s + (b/z_s) * y_s + c) / d
+		= ((a/z_s)/d * x_s) + ((b/z_s)/d * y_s) + c/d
+
+    screen_origin is at top-left corner
+
+    x_ss = screen_center_x + x_s (x_ss is in screen space)
+    y_ss = screen_center_y - y_s (y_ss is in screen space)
+
+	1/z = ((a/z_s)/d * (x_ss - screen_center_x)) 
+        + ((b/z_s)/d * (screen_center_y - y_ss)) 
+        + c/d
 
 	Note: Above calculation assumes the origin is at the center of the view,
 	however, screen space has the origin at top-left corner. There is some
 	translation work needs to be done.
 	*/
-    isurface->zi_stepx = normal_view.x * camera->scale_invz * inv_dist;
+    isurface->zi_stepx = n_view.x * camera->scale_invz * inv_dist;
     // y axis is pointing up in view space
-    isurface->zi_stepy = -normal_view.y * camera->scale_invz * inv_dist;
+    isurface->zi_stepy = -n_view.y * camera->scale_invz * inv_dist;
     // move to top-left corner
-    isurface->zi_start = normal_view.z * inv_dist
+    isurface->zi_start = n_view.z * inv_dist
                        - camera->screen_center.x * isurface->zi_stepx
                        - camera->screen_center.y * isurface->zi_stepy;
 
@@ -965,7 +979,7 @@ void InsertNewIEdges(IEdge *edges_to_add, IEdge *edge_list)
     }
 }
 
-void LeadingEdge(IEdge *iedge, ISurface *isurfaces, int y, ESpan **currentSpan)
+void LeadingEdge(IEdge *iedge, ISurface *isurfaces, I32 y, ESpan **currentSpan)
 {
     ISurface *topISurf;
 
@@ -1289,17 +1303,24 @@ TextureGradient CalcGradients(Surface *surface, I32 miplevel, Camera *camera)
     Vec3f v_axis = TransformDirectionToView(camera, surface->tex_info->v_axis);
 
     /* 
-    u_axis = u_axis * mipscale
-    u = vec3dot(p, u_axis) 
-	  = p.x * u_axis.x + p.y * u_axis.y + p.z * u_axis.z
+     u_axis = u_axis * mipscale
+     u = vec3dot(p, u_axis) + offset_ignore_for_now
+	   = p.x * u_axis.x + p.y * u_axis.y + p.z * u_axis.z
+ 
+     u/z = (p.x * u_axis.x / p.z) + (p.y * u_axis.y / p.z) + u_axis.z
+ 
+     x_ss = screen_center_x + p.x (x_ss is in screen space)
+     y_ss = screen_center_y - p.y (y_ss is in screen space)
+ 
+     u/z = ((x_ss - screen_center_x) * u_axis.x / p.z) 
+         + ((screen_center_y - y_ss) * u_axis.y / p.z) 
+         + u_axis.z
 
-    u/z = (p.x * u_axis.x / p.z) + (p.y * u_axis.y / p.z) + u_axis.z
-
-	uinvz_step_x = u_axis.x / p.z --> stepping of u/z along x axis
-	uinvz_step_y = u_axis.y / p.z --> stepping of u/z along y axis
+	 uinvz_step_x = u_axis.x / p.z --> stepping of u/z along x axis
+	 uinvz_step_y = -u_axis.y / p.z --> stepping of u/z along y axis
 	*/   
 
-    float temp = camera->scale_invz * mipscale;
+    float temp = camera->scale_invz * mipscale; // pre-scale by mip size
     result.uinvz_step_x = u_axis.x * temp;
     result.vinvz_step_x = v_axis.x * temp;
     // y axis is pointing up, but we scan from top down.
@@ -1314,34 +1335,52 @@ TextureGradient CalcGradients(Surface *surface, I32 miplevel, Camera *camera)
                         - camera->screen_center.y * result.vinvz_step_y
                         + v_axis.z * mipscale;
 
-    // TODO lw: why?
-    Vec3f transformed_cam_pos = TransformPointToView(camera, camera->position) * mipscale;
+    /*
+     U_view = inverse(R) * U_world
+     P_view = (inverse(R) * inverse(T)) * P_world
+
+     U_view * P_view = inverse(R) * U_world * (inverse(R) * inverse(T)) * P_world
+                     = U_world * transpose(inverse(R)) * (inverse(R) * inverse(T)) * P_world
+                     = U_world * R * inverse(R) * inverse(T) * P_world
+                     = U_world * (inverse(T) * P_world)
+                     = U_world * (P_world - camera_position)
+                     = U_world * P_world - U_world * camera_position
+
+     U_world * P_world = U_view * P_view + U_world * camera_position
+
+     => camera_adjust_u = U_world * camera_position
+     quake did it this way : camera_adjust_u = (U_world * R) * (inverse(R) * camera_position)
+    */
 
     temp = 0x10000 * mipscale; // to Fixed16
 
+    Fixed16 camera_adjust_u = (Fixed16)(Vec3Dot(camera->position, surface->tex_info->u_axis) * temp + 0.5f);
+
     // surface->uv_min[0] << 16 is promoted to I32, even surface->uv_min[0] is I16
-    result.u_adjust = (Fixed16)(Vec3Dot(transformed_cam_pos, u_axis) * 0x10000 + 0.5f)
-                     - (Fixed16)((surface->uv_min[0] << 16) >> miplevel)
-                     + (Fixed16)(surface->tex_info->u_axis.z * temp);
+    result.u_adjust = camera_adjust_u
+                    - (Fixed16)((surface->uv_min[0] << 16) >> miplevel)
+                    + (Fixed16)(surface->tex_info->u_offset * temp);
 
-    result.v_adjust = (Fixed16)(Vec3Dot(transformed_cam_pos, v_axis) * 0x10000 + 0.5f)
-                     - (Fixed16)((surface->uv_min[1] << 16) >> miplevel)
-                     + (Fixed16)(surface->tex_info->v_axis.z * temp);
+    Fixed16 camera_adjust_v = (Fixed16)(Vec3Dot(camera->position, surface->tex_info->v_axis) * temp + 0.5f);
 
-    result.u_extent = ((surface->uv_extents[0] << 16) >> miplevel)- 1;
-    result.v_extent = ((surface->uv_extents[1] << 16) >> miplevel)- 1;
+    result.v_adjust = camera_adjust_v
+                    - (Fixed16)((surface->uv_min[1] << 16) >> miplevel)
+                    + (Fixed16)(surface->tex_info->v_offset * temp);
+
+    // TODO lw: ? -1 (-epsilon) so we never wander off the edge of the texture
+    result.u_extent = ((surface->uv_extents[0] << 16) >> miplevel) - 1;
+    result.v_extent = ((surface->uv_extents[1] << 16) >> miplevel) - 1;
 
     return result;
 }
 
-Texture *AnimateTexture(Texture *tex)
+void DrawSpan8(ISurface *isurf, TextureGradient tex_grad, float zi_start, 
+               float zi_stepx, float zi_stepy, U8 *surfcache, I32 cachewidth, 
+               U8 *pixelbuffer, I32 bytesPerRow)
 {
-    return NULL;
-}
+    ESpan *span = isurf->spans;
 
-void DrawSpan8(ESpan *span, TextureGradient tex_grad, float zi_start, float zi_stepx, 
-               float zi_stepy, U8 *surfcache, I32 cachewidth, U8 *pixelbuffer, I32 bytesPerRow)
-{
+    // perspective-correctly interpolate at every 8 unit
     float uinvz_step_x8 = tex_grad.uinvz_step_x * 8.0f;
     float vinvz_step_x8 = tex_grad.vinvz_step_x * 8.0f;
     float invz_step_x8 = zi_stepx * 8.0f;
@@ -1373,7 +1412,7 @@ void DrawSpan8(ESpan *span, TextureGradient tex_grad, float zi_start, float zi_s
         Fixed16 u_step = 0, v_step = 0;
         Fixed16 u_next8 = 0, v_next8 = 0;
 
-        do
+        while (span_pixel_count)
         {
             I32 count = 8;
             if (span_pixel_count < 8)
@@ -1401,7 +1440,7 @@ void DrawSpan8(ESpan *span, TextureGradient tex_grad, float zi_start, float zi_s
             }
             else
             {
-                float steps = (float)(count - 1);
+                I32 steps = (count - 1);
                 uinvz += tex_grad.uinvz_step_x * steps;
                 vinvz += tex_grad.vinvz_step_x * steps;
                 invz += zi_stepx * steps;
@@ -1416,12 +1455,12 @@ void DrawSpan8(ESpan *span, TextureGradient tex_grad, float zi_start, float zi_s
 
                 if (count > 1)
                 {
-                    u_step = (u_next8 - u) / (count - 1);
-                    v_step = (v_next8 - v) / (count - 1);
+                    u_step = (u_next8 - u) / steps;
+                    v_step = (v_next8 - v) / steps;
                 }
             }
 
-            while (count)
+            while (count--)
             {
                 *pixel++ = *(surfcache + (v >> 16) * cachewidth + (u >> 16));
                 u += u_step;
@@ -1430,8 +1469,7 @@ void DrawSpan8(ESpan *span, TextureGradient tex_grad, float zi_start, float zi_s
 
             u = u_next8;
             v = v_next8;
-
-        } while (span_pixel_count > 0);
+        }
 
         span = span->next;
     }
@@ -1439,18 +1477,18 @@ void DrawSpan8(ESpan *span, TextureGradient tex_grad, float zi_start, float zi_s
 
 void DrawSolidSurfaces(ISurface *isurf, U8 *buffer, I32 bytesPerRow)
 {
-    U8 pixelColor = (size_t)isurf->data & 0xff;
+    U8 color = (size_t)isurf->data & 0xff;
 
     for (ESpan *span = isurf->spans; span != NULL; span = span->next)
     {
         U8 *pixel = buffer + bytesPerRow * span->y + span->x_start;
-        I32 startX = span->x_start;
-        // don't drawing trailing edges
-        I32 endX = startX + span->count - 1;
+        I32 start_x = span->x_start;
+        // don't drawing trailing(right) edges, so minus 1
+        I32 end_x = start_x + span->count - 1;
 
-        for (I32 i = startX; i < endX; ++i)
+        for (I32 i = start_x; i <= end_x; ++i)
         {
-            *pixel++ = (U8)pixelColor;
+            *pixel++ = (U8)color;
         }
     }
 }
@@ -1474,6 +1512,36 @@ void DrawZBuffer(float zi_stepx, float zi_stepy, float zi_start, ESpan *span,
 
         span = span->next;
     } while (span != NULL);
+}
+
+void Debug_DrawTexture(U8 *pixelbuffer, I32 bytesPerRow, U8 *tex_src, I32 tex_width, I32 tex_height)
+{
+    U8 *pixel_y = pixelbuffer;
+    U8 *texel = tex_src;
+    for (I32 y = 0; y < tex_height; ++y)
+    {
+        U8 *pixel_x = pixel_y;
+        for (I32 x = 0; x < tex_width; ++x)
+        {
+            *pixel_x++ = *texel++;
+        }
+        pixel_y += bytesPerRow;
+    }
+}
+
+void Debug_DrawColorMap(U8 *pixelbuffer, I32 bytesPerRow, U8 *colormap)
+{
+    U8 *pixel_y = pixelbuffer;
+    U8 *color = colormap;
+    for (I32 y = 0; y < 64; ++y)
+    {
+        U8 *pixel = pixel_y;
+        for (I32 x = 0; x < 255; ++x)
+        {
+            *pixel++ = *color++;
+        }
+        pixel_y += bytesPerRow;
+    }
 }
 
 void DrawSurfaces(ISurface *isurfaces, ISurface *endISurf, U8 *pbuffer, 
@@ -1523,6 +1591,8 @@ void DrawSurfaces(ISurface *isurfaces, ISurface *endISurf, U8 *pbuffer,
 
                 Surface *surface = (Surface *)isurf->data;
 
+                // scale = (screen_z / nearest_z), the smaller nearest_z is the
+                // larger scale is
                 float scale = isurf->nearest_invz 
                             * camera->scale_z * surface->tex_info->mip_adjust;
 
@@ -1531,12 +1601,16 @@ void DrawSurfaces(ISurface *isurfaces, ISurface *endISurf, U8 *pbuffer,
 
                 TextureGradient tex_grad = CalcGradients(surface, mip_level, camera);
 
-                SurfaceCache *surfcache = 
-                    CacheSurface(surface, mip_level, &g_lightsystem, renderdata->framecount, colormap);
+                SurfaceCache *surfcache = CacheSurface(surface, mip_level, &g_lightsystem, 
+                                                       renderdata->framecount, colormap);
 
-                DrawSpan8(isurf->spans, tex_grad, isurf->zi_start, isurf->zi_stepx,
+#if 1
+                DrawSpan8(isurf, tex_grad, isurf->zi_start, isurf->zi_stepx,
                           isurf->zi_stepy, surfcache->data, surfcache->width, 
                           pbuffer, bytesPerRow);
+#else
+                Debug_DrawColorMap(pbuffer, bytesPerRow, colormap);
+#endif
 
                 DrawZBuffer(isurf->zi_stepx, isurf->zi_stepy, isurf->zi_start, 
                             isurf->spans, zbuffer, zbuffer_width);
@@ -1547,9 +1621,11 @@ void DrawSurfaces(ISurface *isurfaces, ISurface *endISurf, U8 *pbuffer,
 
 #define MAX_SPAN_NUM 5120
 
-void ScanEdge(Recti rect, RenderData *renderdata, RenderBuffer *renderbuffer, 
+void ScanEdge(RenderData *renderdata, RenderBuffer *renderbuffer, 
               Camera *camera)
 {
+    Recti rect = camera->screen_rect;
+
     U8 basespans[MAX_SPAN_NUM * sizeof(ESpan) + CACHE_SIZE];
     ESpan *spanlist = (ESpan *)((size_t)(basespans + CACHE_SIZE - 1) & ~(CACHE_SIZE - 1));
     ESpan *maxSpan = &spanlist[MAX_SPAN_NUM - rect.width]; // TODO lw: ???
@@ -1690,8 +1766,7 @@ void EdgeDrawing(RenderData *renderdata, Camera *camera, RenderBuffer *renderbuf
     // away the root node, 
     RenderWorld(renderdata->worldModel->nodes, camera, renderdata);
 
-    Recti rect = {0, 0, 640, 480}; // TODO lw: remove this
-    ScanEdge(rect, renderdata, renderbuffer, camera);
+    ScanEdge(renderdata, renderbuffer, camera);
 }
 
 void SetupFrame(RenderData *renderdata, Camera *camera)
@@ -1715,9 +1790,44 @@ void SetupFrame(RenderData *renderdata, Camera *camera)
     UpdateVisibleLeaves(renderdata);
 }
 
+/* 
+ quake: GDI doesn't let us remap palette index 0, so we'll remap color mappings 
+ from that black to another one
+*/ 
+void RemapColorMap(U8 *palette, U8 *colormap)
+{
+    I32 bestmatchmetric = 256*256*3;
+    U8  bestmatch = 0;
+
+	for (U8 i = 1 ; i < 256 ; i++)
+	{
+		I32 dr = palette[0] - palette[i*3];
+		I32 dg = palette[1] - palette[i*3+1];
+		I32 db = palette[2] - palette[i*3+2];
+
+		I32 t = (dr * dr) + (dg * dg) + (db * db);
+
+		if (t < bestmatchmetric)
+		{
+			bestmatchmetric = t;
+			bestmatch = i;
+
+			if (t == 0)
+				break;
+		}
+	}
+
+    I32 count = 1 << (8 + COLOR_SHADE_BITS); // 256 * 64
+	for (I32 i = 0; i < count; i++)
+	{
+		if (*colormap == 0)
+			*colormap = bestmatch;
+        colormap++;
+	}
+}
 
 
-RenderBuffer g_renderBuffer;
+RenderBuffer g_renderbuffer;
 RenderData g_renderdata;
 
 void RenderView(float dt)
@@ -1727,7 +1837,7 @@ void RenderView(float dt)
     PushLights(&g_lightsystem, dt, g_renderdata.worldModel->nodes,
                g_renderdata.framecount, g_renderdata.worldModel->surfaces);
 
-    EdgeDrawing(&g_renderdata, &g_camera, &g_renderBuffer);
+    EdgeDrawing(&g_renderdata, &g_camera, &g_renderbuffer);
 }
 
 void RenderInit()

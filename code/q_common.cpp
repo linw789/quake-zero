@@ -584,6 +584,8 @@ void *HunkLowAlloc(int size, char *name)
 
     // TODO lw: free cache memory if necessary
 
+    MemSet(hheader, 0, size);
+
     hheader->sentinel = HUNK_SENTINEL;
     hheader->size = size;
     StringCopy(hheader->name, 16, name);
