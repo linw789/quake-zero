@@ -79,8 +79,6 @@ SurfaceCache *SurfaceCacheAlloc(I32 width, I32 size)
 {
     if (width < 0 || width > 256)
     {
-        ASSERT(width < 256);
-        ASSERT(width > 0);
         g_platformAPI.SysError("SurfaceCacheAlloc: bad width");
     }
     if (size <= 0 || size > 0x10000)
@@ -113,10 +111,17 @@ SurfaceCache *SurfaceCacheAlloc(I32 width, I32 size)
     while (new_cache->size < total_size)
     {
         g_surfcache_memory.rover = g_surfcache_memory.rover->next;
+
         if (!g_surfcache_memory.rover)
         {
             g_platformAPI.SysError("SurfaceCacheAlloc: not enough memory!");
         }
+
+        if (g_surfcache_memory.rover->owner)
+        {
+            *(g_surfcache_memory.rover->owner) = NULL;
+        }
+
         new_cache->next = g_surfcache_memory.rover->next;
         new_cache->size += g_surfcache_memory.rover->size; 
     }
