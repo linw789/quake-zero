@@ -158,6 +158,8 @@ struct MouseState
 {
     I32 delta_x;
     I32 delta_y;
+    I32 old_x;
+    I32 old_y;
 };
 
 //     |  player makes input  |   we process input  |   inputs take effect

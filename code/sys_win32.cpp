@@ -321,25 +321,52 @@ Win32ProcessPendingMessages()
 }
 
 INTERNAL_LINKAGE void
-Win32ProcessMouseMove(Win32State *wstate, GameInput *input)
+Win32ProcessMouseMove(Win32State *wstate, MouseState *mouse)
 {
     if (wstate->has_focus)
     {
         POINT mouse_point = {0};
         GetCursorPos(&mouse_point);
 
-        I32 window_center_x = (wstate->window_size.left + wstate->window_size.right) / 2;
-        I32 window_center_y = (wstate->window_size.top + wstate->window_size.bottom) / 2;
+        if (mouse->old_x == mouse_point.x)
+        {
+            if (mouse->old_x == wstate->window_size.left)
+            {
+                mouse->delta_x = -20;
+            }
+            else if (mouse->old_x == wstate->window_size.right)
+            {
+                mouse->delta_x = 20;
+            }
+        }
+        else
+        {
+            mouse->delta_x = mouse_point.x - mouse->old_x;
+        }
 
-        input->mouse.delta_x = mouse_point.x - window_center_x;
-        input->mouse.delta_y = mouse_point.y - window_center_y;
+        if (mouse->old_y == mouse_point.y)
+        {
+            if (mouse->old_y == wstate->window_size.top)
+            {
+                mouse->delta_y = -20;
+            }
+            else if (mouse->old_y == wstate->window_size.bottom)
+            {
+                mouse->delta_y = 20;
+            }
+        }
+        else
+        {
+            mouse->delta_y = mouse_point.y - mouse->old_y;
+        }
 
-        SetCursorPos(window_center_x, window_center_y);
+        mouse->old_x = mouse_point.x;
+        mouse->old_y = mouse_point.y;
     }
     else
     {
-        input->mouse.delta_x = 0;
-        input->mouse.delta_y = 0;
+        mouse->delta_x = 0;
+        mouse->delta_y = 0;
     }
 }
 
@@ -554,8 +581,8 @@ WinMain(HINSTANCE instance, HINSTANCE preInstance, LPSTR cmdline, int showCode)
 
     // move the window to the center of the screen
     {
-        int window_width = g_screenBuffer.width * 2; 
-        int window_height = g_screenBuffer.height * 2; 
+        int window_width = 640; 
+        int window_height = 480; 
         RECT rect = {0};
         const HWND hDesktop = GetDesktopWindow();
         GetWindowRect(hDesktop, &rect);
@@ -566,6 +593,7 @@ WinMain(HINSTANCE instance, HINSTANCE preInstance, LPSTR cmdline, int showCode)
         rect.right = window_width + rect.left - 1;
         rect.bottom = window_height + rect.top - 1;
         AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, FALSE);
+
         // TODO lw: We could make the window resizable, because the frame buffer
         // and the z-buffer are allocated at high hunk. Resize them won't affect
         // other memory.
@@ -588,10 +616,13 @@ WinMain(HINSTANCE instance, HINSTANCE preInstance, LPSTR cmdline, int showCode)
         window_rect.right = point.x;
         window_rect.bottom = point.y;
 
-        ShowCursor(FALSE);
+        ShowCursor(TRUE);
         ClipCursor(&window_rect);
         SetCursorPos((window_rect.left + window_rect.right) / 2,
                      (window_rect.top + window_rect.bottom) / 2);
+
+        g_game_input.mouse.old_x = (window_rect.left + window_rect.right) / 2;
+        g_game_input.mouse.old_y = (window_rect.top + window_rect.bottom) / 2;
 
         g_win32_state.window_size = window_rect;
     }
@@ -602,7 +633,7 @@ WinMain(HINSTANCE instance, HINSTANCE preInstance, LPSTR cmdline, int showCode)
     while (g_running)
     {
         Win32ProcessPendingMessages();
-        Win32ProcessMouseMove(&g_win32_state, &g_game_input);
+        Win32ProcessMouseMove(&g_win32_state, &g_game_input.mouse);
 
         U64 counter = Win32GetWallClock();
         float secondsElapsed = Win32GetSecondsElapsed(startCounter, counter, counterFrequency);
