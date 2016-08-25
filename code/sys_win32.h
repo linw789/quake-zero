@@ -28,7 +28,7 @@ struct Win32State
     char exeFilePath[WIN32_MAX_FILE_PATH_LENGTH];
     char *onePastLastExeFilePathSlash; 
     RECT window_size;
-    B32 has_focus;
+    bool has_focus;
 };
 
 struct Win32GameCode

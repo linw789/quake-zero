@@ -321,44 +321,21 @@ Win32ProcessPendingMessages()
 }
 
 INTERNAL_LINKAGE void
-Win32ProcessMouseMove(Win32State *wstate, MouseState *mouse)
+Win32ProcessMouseMove(bool has_focus, RECT win_rect, MouseState *mouse)
 {
-    if (wstate->has_focus)
+    if (has_focus)
     {
         POINT mouse_point = {0};
         GetCursorPos(&mouse_point);
 
-        if (mouse->old_x == mouse_point.x)
-        {
-            if (mouse->old_x == wstate->window_size.left)
-            {
-                mouse->delta_x = -20;
-            }
-            else if (mouse->old_x == wstate->window_size.right)
-            {
-                mouse->delta_x = 20;
-            }
-        }
-        else
-        {
-            mouse->delta_x = mouse_point.x - mouse->old_x;
-        }
+        int win_center_x = (win_rect.left + win_rect.right) / 2;
+        int win_center_y = (win_rect.top + win_rect.bottom) / 2;
 
-        if (mouse->old_y == mouse_point.y)
-        {
-            if (mouse->old_y == wstate->window_size.top)
-            {
-                mouse->delta_y = -20;
-            }
-            else if (mouse->old_y == wstate->window_size.bottom)
-            {
-                mouse->delta_y = 20;
-            }
-        }
-        else
-        {
-            mouse->delta_y = mouse_point.y - mouse->old_y;
-        }
+        mouse->delta_x = mouse_point.x - win_center_x;
+        mouse->delta_y = mouse_point.y - win_center_y;
+
+        SetCursorPos(win_center_x, win_center_y);
+        GetCursorPos(&mouse_point);
 
         mouse->old_x = mouse_point.x;
         mouse->old_y = mouse_point.y;
@@ -616,7 +593,7 @@ WinMain(HINSTANCE instance, HINSTANCE preInstance, LPSTR cmdline, int showCode)
         window_rect.right = point.x;
         window_rect.bottom = point.y;
 
-        ShowCursor(TRUE);
+        ShowCursor(FALSE);
         ClipCursor(&window_rect);
         SetCursorPos((window_rect.left + window_rect.right) / 2,
                      (window_rect.top + window_rect.bottom) / 2);
@@ -633,7 +610,7 @@ WinMain(HINSTANCE instance, HINSTANCE preInstance, LPSTR cmdline, int showCode)
     while (g_running)
     {
         Win32ProcessPendingMessages();
-        Win32ProcessMouseMove(&g_win32_state, &g_game_input.mouse);
+        Win32ProcessMouseMove(g_win32_state.has_focus, g_win32_state.window_size, &g_game_input.mouse);
 
         U64 counter = Win32GetWallClock();
         float secondsElapsed = Win32GetSecondsElapsed(startCounter, counter, counterFrequency);
