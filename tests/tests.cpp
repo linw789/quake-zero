@@ -308,18 +308,6 @@ void test_MemoryAlloc()
     ERROR(g_main_zone->rover->next == &g_main_zone->tailhead);
 }
 
-void test_Math()
-{
-    Vec3f angles = {0, 0, -90.0f};
-    Vec3f rotx = {0};
-    Vec3f roty = {0};
-    Vec3f rotz = {0};
-    AngleVectors(angles, &rotx, &roty, &rotz);
-
-    Vec3f dir = {1, 0, 0};
-    Vec3f dir_view = {Vec3Dot(rotx, dir), Vec3Dot(roty, dir), Vec3Dot(rotz, dir)};
-}
-
 void tests()
 {
     test_StringLength();
@@ -514,8 +502,6 @@ void demo_CacheAlloc()
 I32 main(I32 argc, char *argv[])
 {
     g_platformAPI.SysError = CmdError;
-
-    test_Math();
 
     printf("Unit Tests Begin ... \n\n");
 
