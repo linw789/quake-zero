@@ -314,9 +314,9 @@ ModelLoadTextures(Model *model, U8 *base, Lump lump)
         }
         MemCpy(tx + 1, mipTex + 1, pixelCount);
 
-        if (StringNCompare(mipTex->name, "sky", 3))
+        if (StringNCompare(tx->name, "sky", 3) == 0)
         {
-            // TODO lw: initialize sky
+            SkyInit(&g_skycanvas, tx);
         }
     }
 
@@ -480,6 +480,8 @@ ModelLoadFaces(Model *model, U8 *base, Lump lump)
     Surface *surface = NULL;
     surface = (Surface *)HunkLowAlloc(count * sizeof(*surface), model->name);
 
+    MemSet(surface, 0, count * sizeof(*surface));
+
     model->surfaces = surface;
     model->numSurface = count; 
 
@@ -496,18 +498,6 @@ ModelLoadFaces(Model *model, U8 *base, Lump lump)
 
         surface->plane = model->planes + faceDisk->planeOffset;
         surface->tex_info = model->tex_info + faceDisk->texInfoOffset;
-
-#if 0 // debug
-        Vec3f normal = surface->plane->normal;
-        I32 notzero_count = 0;
-        if (normal.x != 0) notzero_count++;
-        if (normal.y != 0) notzero_count++;
-        if (normal.z != 0) notzero_count++;
-        if (notzero_count > 1)
-        {
-            float test = normal.x;
-        }
-#endif
 
         CalcTexCoordExtents(model, surface);
 

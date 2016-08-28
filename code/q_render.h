@@ -7,7 +7,7 @@ struct RenderBuffer
     I32 width;
     I32 height;
     I32 bytesPerPixel;
-    I32 bytesPerRow;
+    I32 bytes_per_row;
     U8 *colorPalette;
     /*
     0  ...  255 -->color 

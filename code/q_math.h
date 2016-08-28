@@ -66,7 +66,7 @@ inline float Tangent(float x)
 }
 
 /*
-    Linear Math 
+    Linear Algebra
 */
 struct Vec2f
 {
@@ -82,6 +82,16 @@ struct Vec2f
         struct {float x, y;};
         struct {float s, t;};
         struct {float u, v;};
+    };
+};
+
+struct Vec2i
+{
+    union
+    {
+        struct {I32 x, y;};
+        struct {I32 s, t;};
+        struct {I32 u, v;};
     };
 };
 
@@ -229,7 +239,6 @@ inline Vec3f operator*(const Mat3 m3, const Vec3f v3)
 
 void AngleVectors(Vec3f angles, Vec3f *vx, Vec3f *vy, Vec3f *vz)
 {
-#if 1
     float radian = 0;
     radian = DegreeToRadian(angles[0]);
     float sinx = Sine(radian);
@@ -250,36 +259,4 @@ void AngleVectors(Vec3f angles, Vec3f *vx, Vec3f *vy, Vec3f *vz)
     *vx = {cosz, -sinz, 0};
     *vy = {sinz * cosx, cosz * cosx, sinx};
     *vz = {-sinz * sinx, -cosz * sinx, cosx};
-#endif
-
-#if 0
-    I32 PITCH = 0, YAW = 1, ROLL = 2;
-    float M_PI = 3.14159265358979323846f;
-
-    float		angle;
-	float		sr, sp, sy, cr, cp, cy;
-	
-	// lw: y
-	angle = angles[YAW] * (M_PI*2 / 360); // yaw angle in radius
-	sy = Sine(angle); // sine_yaw
-	cy = Cosine(angle); // cosine_yaw
-	// lw: x
-	angle = angles[PITCH] * (M_PI*2 / 360);
-	sp = Sine(angle); // sine_pitch
-	cp = Cosine(angle); // cosine_pitch
-	// lw: z
-	angle = angles[ROLL] * (M_PI*2 / 360);
-	sr = Sine(angle); // sine_roll
-	cr = Cosine(angle); // cosine_roll
-
-	vy->x = cp*cy;
-	vy->y = cp*sy;
-	vy->z = -sp;
-	vx->x = (-sr*sp*cy+cr*sy);
-	vx->y = (-sr*sp*sy-cr*cy);
-	vx->z = -sr*cp;
-	vz->x = (cr*sp*cy+sr*sy);
-	vz->y = (cr*sp*sy-sr*cy);
-	vz->z = cr*cp;
-#endif
 }

@@ -35,6 +35,9 @@
 #define EDGE_FRAMECOUNT_MASK	0x7fffffff
 #define EDGE_PARTIALLY_CLIPPED  EDGE_FRAMECOUNT_MASK
 
+#define SKY_SPAN_SHIFT 5
+#define SKY_SPAN_MAX (1 << SKY_SPAN_SHIFT)
+
 // for data alignment on function stack
 #define CACHE_SIZE 64
 
@@ -210,6 +213,7 @@ void SetupFrustumIndices(Camera *camera)
         }
     }
 }
+
 
 void UpdateVisibleLeaves(RenderData *renderdata)
 {
@@ -714,7 +718,7 @@ void RenderFace(Surface *surface, RenderData *renderdata, Camera *camera,
 
     isurface->data = (void *)surface;
     isurface->nearest_invz = renderdata->nearest_invz;
-    isurface->flags = surface->flags;
+    isurface->flags = surface->flags; // sky, water, normal plane and etc.
     isurface->in_submodel = in_submodel;
     isurface->spanState = 0;
     // isurface->entity = ;
@@ -1376,7 +1380,7 @@ TextureGradient CalcGradients(Surface *surface, I32 miplevel, Camera *camera)
 
 void DrawSpan8(ISurface *isurf, TextureGradient tex_grad, float zi_start, 
                float zi_stepx, float zi_stepy, U8 *surfcache, I32 cachewidth, 
-               U8 *pixelbuffer, I32 bytesPerRow)
+               U8 *pixelbuffer, I32 bytes_per_row)
 {
     ESpan *span = isurf->spans;
 
@@ -1388,7 +1392,7 @@ void DrawSpan8(ISurface *isurf, TextureGradient tex_grad, float zi_start,
     // interpolating texels across the span
     while (span)
     {
-        U8 *pixel = pixelbuffer + span->y * bytesPerRow + span->x_start;
+        U8 *pixel = pixelbuffer + span->y * bytes_per_row + span->x_start;
 
         I32 span_pixel_count = span->count;
 
@@ -1422,7 +1426,7 @@ void DrawSpan8(ISurface *isurf, TextureGradient tex_grad, float zi_start,
             span_pixel_count -= count;
 
             // calculate stepping variables at multiples of 8
-            if (count >= 8)
+            if (count == 8)
             {
                 uinvz += uinvz_step_x8;
                 vinvz += vinvz_step_x8;
@@ -1475,13 +1479,73 @@ void DrawSpan8(ISurface *isurf, TextureGradient tex_grad, float zi_start,
     }
 }
 
-void DrawSolidSurfaces(ISurface *isurf, U8 *buffer, I32 bytesPerRow)
+void DrawSkySpan(ISurface *isurf, U8 *pixelbuffer, I32 bytes_per_row, float sky_shift, 
+                 U8 *sky_src, Camera *camera)
+{
+    ESpan *span = isurf->spans;
+    I32 screen_half_width = camera->screen_rect.width >> 1;
+    I32 screen_half_height = camera->screen_rect.height >> 1;
+
+    while (span)
+    {
+        U8 *pixel = pixelbuffer + span->y * bytes_per_row + span->x_start;
+        I32 span_pixelcount = span->count;
+        I32 x = span->x_start;
+        I32 y = span->y;
+        Vec2i tex_uv = SkyGetTextureUV(x, y, screen_half_width, screen_half_height, sky_shift, camera);
+        Vec2i tex_uv_next = {0};
+        I32 stepu = 0, stepv = 0;
+
+        while (span_pixelcount)
+        {
+            I32 count = SKY_SPAN_MAX;
+            if (span_pixelcount < SKY_SPAN_MAX)
+            {
+                count = span_pixelcount;
+            }
+            span_pixelcount -= count;
+
+            if (count == SKY_SPAN_MAX)
+            {
+                x += SKY_SPAN_MAX;
+                tex_uv_next = SkyGetTextureUV(x, y, screen_half_width, screen_half_height, sky_shift, camera);
+                stepu = (tex_uv_next.u - tex_uv.u) >> SKY_SPAN_SHIFT;
+                stepv = (tex_uv_next.v - tex_uv.v) >> SKY_SPAN_SHIFT;
+            }
+            else
+            {
+                I32 count_minus1 = count - 1;
+                if (count_minus1)
+                {
+                    x += count_minus1;
+                    tex_uv_next = SkyGetTextureUV(x, y, screen_half_width, screen_half_height, sky_shift, camera);
+                    stepu = (tex_uv_next.u - tex_uv.u) / count_minus1;
+                    stepv = (tex_uv_next.v - tex_uv.v) / count_minus1;
+                }
+            }
+
+            while (count--)
+            {
+                // ((v >> 16) & 0x7f) * 128 + ((u >> 16) & 0x7f)
+                *pixel++ = sky_src[((tex_uv.v & 0x007f0000) >> 8) + ((tex_uv.u & 0x007f0000) >> 16)];
+                tex_uv.u += stepu;
+                tex_uv.v += stepv;
+            }
+
+            tex_uv = tex_uv_next;
+        }
+
+        span = span->next;
+    }
+}
+
+void DrawSolidSurfaces(ISurface *isurf, U8 *buffer, I32 bytes_per_row)
 {
     U8 color = (size_t)isurf->data & 0xff;
 
     for (ESpan *span = isurf->spans; span != NULL; span = span->next)
     {
-        U8 *pixel = buffer + bytesPerRow * span->y + span->x_start;
+        U8 *pixel = buffer + bytes_per_row * span->y + span->x_start;
         I32 start_x = span->x_start;
         // don't drawing trailing(right) edges, so minus 1
         I32 end_x = start_x + span->count - 1;
@@ -1514,7 +1578,7 @@ void DrawZBuffer(float zi_stepx, float zi_stepy, float zi_start, ESpan *span,
     } while (span != NULL);
 }
 
-void Debug_DrawTexture(U8 *pixelbuffer, I32 bytesPerRow, U8 *tex_src, I32 tex_width, I32 tex_height)
+void Debug_DrawTexture(U8 *pixelbuffer, I32 bytes_per_row, U8 *tex_src, I32 tex_width, I32 tex_height)
 {
     U8 *pixel_y = pixelbuffer;
     U8 *texel = tex_src;
@@ -1525,11 +1589,11 @@ void Debug_DrawTexture(U8 *pixelbuffer, I32 bytesPerRow, U8 *tex_src, I32 tex_wi
         {
             *pixel_x++ = *texel++;
         }
-        pixel_y += bytesPerRow;
+        pixel_y += bytes_per_row;
     }
 }
 
-void Debug_DrawColorMap(U8 *pixelbuffer, I32 bytesPerRow, U8 *colormap)
+void Debug_DrawColorMap(U8 *pixelbuffer, I32 bytes_per_row, U8 *colormap)
 {
     U8 *pixel_y = pixelbuffer;
     U8 *color = colormap;
@@ -1540,13 +1604,63 @@ void Debug_DrawColorMap(U8 *pixelbuffer, I32 bytesPerRow, U8 *colormap)
         {
             *pixel++ = *color++;
         }
-        pixel_y += bytesPerRow;
+        pixel_y += bytes_per_row;
     }
 }
 
+void Debug_DrawSkyTexture(U8 *pixelbuffer, I32 bytes_per_row, SkyCanvas *sky)
+{
+    // draw original left sky texture
+    U8 *pixel_y = pixelbuffer;
+    U8 *sky_src_y = sky->left_sky;
+    for (I32 y = 0; y < SKY_SIZE; ++y)
+    {
+        U8 *pixel = pixel_y;
+        U8 *sky_src = sky_src_y;
+        for (I32 x = 0; x < SKY_SIZE; ++x)
+        {
+            *pixel++ = *sky_src++;
+        }
+        sky_src_y += SKY_WEIRD_NUMBER;
+        pixel_y += bytes_per_row;
+    }
+
+#if 0
+    // draw original right sky texture
+    pixel_y = pixelbuffer + SKY_SIZE;
+    sky_src_y = sky->new_sky + SKY_SIZE;
+    for (I32 y = 0; y < SKY_SIZE; ++y)
+    {
+        U8 *pixel = pixel_y;
+        U8 *sky_src = sky_src_y;
+        for (I32 x = 0; x < SKY_SIZE; ++x)
+        {
+            *pixel++ = *sky_src++;
+        }
+        pixel_y += bytes_per_row;
+        sky_src_y += SKY_TEXTURE_WIDTH;
+    }
+#else
+    // draw synthesized sky
+    pixel_y = pixelbuffer + SKY_SIZE;
+    sky_src_y = sky->new_sky;
+    for (I32 y = 0; y < SKY_SIZE; ++y)
+    {
+        U8 *pixel = pixel_y;
+        U8 *sky_src = sky_src_y;
+        for (I32 x = 0; x < SKY_SIZE; ++x)
+        {
+            *pixel++ = *sky_src++;
+        }
+        pixel_y += bytes_per_row;
+        sky_src_y += SKY_TEXTURE_WIDTH;
+    }
+#endif
+}
+
 void DrawSurfaces(ISurface *isurfaces, ISurface *endISurf, U8 *pbuffer, 
-                  I32 bytesPerRow, float *zbuffer, I32 zbuffer_width, U8 *colormap,
-                  RenderData *renderdata, Camera *camera)
+                  I32 bytes_per_row, float *zbuffer, I32 zbuffer_width, U8 *colormap,
+                  RenderData *renderdata, SkyCanvas *sky, Camera *camera)
 {
     Cvar *cvar_drawflat = CvarGet("drawflat");
     if (cvar_drawflat->val)
@@ -1557,13 +1671,14 @@ void DrawSurfaces(ISurface *isurfaces, ISurface *endISurf, U8 *pbuffer,
             {
                 continue;
             }
-            DrawSolidSurfaces(isurf, pbuffer, bytesPerRow);
+            DrawSolidSurfaces(isurf, pbuffer, bytes_per_row);
             DrawZBuffer(isurf->zi_stepx, isurf->zi_stepy, isurf->zi_start, 
                         isurf->spans, zbuffer, zbuffer_width);
         }
     }
     else
     {
+#if 1
         for (ISurface *isurf = &isurfaces[1]; isurf < endISurf; ++isurf)
         {
             if (!isurf->spans)
@@ -1572,15 +1687,19 @@ void DrawSurfaces(ISurface *isurfaces, ISurface *endISurf, U8 *pbuffer,
             }
             if (isurf->flags & SURF_DRAW_SKY)
             {
+                //DrawSolidSurfaces(isurf, pbuffer, bytes_per_row);
+                DrawSkySpan(isurf, pbuffer, bytes_per_row, sky->sky_shift, sky->new_sky, camera);
 
+                DrawZBuffer(isurf->zi_stepx, isurf->zi_stepy, isurf->zi_start, 
+                            isurf->spans, zbuffer, zbuffer_width);
             }
             else if (isurf->flags & SURF_DRAW_BACKGROUND)
             {
-
+                DrawSolidSurfaces(isurf, pbuffer, bytes_per_row);
             }
             else if (isurf->flags & SURF_DRAW_TURB)
             {
-
+                DrawSolidSurfaces(isurf, pbuffer, bytes_per_row);
             }
             else
             {
@@ -1604,24 +1723,23 @@ void DrawSurfaces(ISurface *isurfaces, ISurface *endISurf, U8 *pbuffer,
                 SurfaceCache *surfcache = CacheSurface(surface, mip_level, &g_lightsystem, 
                                                        renderdata->framecount, colormap);
 
-#if 1
                 DrawSpan8(isurf, tex_grad, isurf->zi_start, isurf->zi_stepx,
                           isurf->zi_stepy, surfcache->data, surfcache->width, 
-                          pbuffer, bytesPerRow);
-#else
-                Debug_DrawColorMap(pbuffer, bytesPerRow, colormap);
-#endif
+                          pbuffer, bytes_per_row);
 
                 DrawZBuffer(isurf->zi_stepx, isurf->zi_stepy, isurf->zi_start, 
                             isurf->spans, zbuffer, zbuffer_width);
             }
         }
+#else
+        Debug_DrawSkyTexture(pbuffer, bytes_per_row, sky);
+#endif
     }
 }
 
 #define MAX_SPAN_NUM 5120
 
-void ScanEdge(RenderData *renderdata, RenderBuffer *renderbuffer, 
+void ScanEdge(RenderData *renderdata, RenderBuffer *renderbuffer, SkyCanvas *sky,
               Camera *camera)
 {
     Recti rect = camera->screen_rect;
@@ -1664,9 +1782,9 @@ void ScanEdge(RenderData *renderdata, RenderBuffer *renderbuffer,
     iedgeSentinel.x_start = 2000 << 24; // make sure nothing sorts past this
     iedgeSentinel.prev = &iedgeAfterTail;
 
-    I32 bytesPerRow = renderbuffer->bytesPerRow;
+    I32 bytes_per_row = renderbuffer->bytes_per_row;
     I32 zbuffer_width = renderbuffer->width;
-    U8 *pbuffer = renderbuffer->backbuffer + rect.y * bytesPerRow + rect.x;
+    U8 *pbuffer = renderbuffer->backbuffer + rect.y * bytes_per_row + rect.x;
     float *zbuffer = renderbuffer->zbuffer + rect.y * zbuffer_width + rect.x;
 
     ISurface *endISurf = renderdata->currentISurface;
@@ -1688,8 +1806,8 @@ void ScanEdge(RenderData *renderdata, RenderBuffer *renderbuffer,
         // If we run out of spans, draw the image and flush span list.
         if (currentSpan >= maxSpan)
         {
-            DrawSurfaces(renderdata->isurfaces, endISurf, pbuffer, bytesPerRow, zbuffer, 
-                         zbuffer_width, renderbuffer->colormap, renderdata, camera);
+            DrawSurfaces(renderdata->isurfaces, endISurf, pbuffer, bytes_per_row, zbuffer, 
+                         zbuffer_width, renderbuffer->colormap, renderdata, sky, camera);
             
             // clear surface span list
             for (ISurface *surf = &(renderdata->isurfaces[1]); surf < endISurf; ++surf)
@@ -1718,8 +1836,8 @@ void ScanEdge(RenderData *renderdata, RenderBuffer *renderbuffer,
     GenerateSpan(renderdata->isurfaces, screenStartX, screenEndX, scanliney, &currentSpan, 
                  &iedgeHead, &iedgeTail);
 
-    DrawSurfaces(renderdata->isurfaces, endISurf, pbuffer, bytesPerRow, zbuffer, 
-                 zbuffer_width, renderbuffer->colormap, renderdata, camera);
+    DrawSurfaces(renderdata->isurfaces, endISurf, pbuffer, bytes_per_row, zbuffer, 
+                 zbuffer_width, renderbuffer->colormap, renderdata, sky, camera);
 }
 
 #define NUM_STACK_EDGE 2400
@@ -1754,7 +1872,7 @@ void SetupEdgeDrawingFrame(RenderData *renderdata, IEdge *iedgeStack, ISurface *
     }
 }
 
-void EdgeDrawing(RenderData *renderdata, Camera *camera, RenderBuffer *renderbuffer)
+void EdgeDrawing(RenderData *renderdata, Camera *camera, RenderBuffer *renderbuffer, SkyCanvas *sky)
 {
     // TODO lw: why put these data on stack? easy to clear up every frame?
     IEdge iedgeStack[NUM_STACK_EDGE + (CACHE_SIZE - 1)/sizeof(IEdge) + 1];
@@ -1763,10 +1881,13 @@ void EdgeDrawing(RenderData *renderdata, Camera *camera, RenderBuffer *renderbuf
     SetupEdgeDrawingFrame(renderdata, iedgeStack, isurfaceStack);
 
     // TODO lw: how does it make sense in the case where the camera is facing 
-    // away the root node, 
+    // away the root node 
+    // construct data from BSP for span-drawing
     RenderWorld(renderdata->worldModel->nodes, camera, renderdata);
 
-    ScanEdge(renderdata, renderbuffer, camera);
+    SkyAnimate(sky);
+
+    ScanEdge(renderdata, renderbuffer, sky, camera);
 }
 
 void SetupFrame(RenderData *renderdata, Camera *camera)
@@ -1833,11 +1954,12 @@ RenderData g_renderdata;
 void RenderView(float dt)
 {
     SetupFrame(&g_renderdata, &g_camera);
+    SkySetupFrame(&g_skycanvas);
 
     PushLights(&g_lightsystem, dt, g_renderdata.worldModel->nodes,
                g_renderdata.framecount, g_renderdata.worldModel->surfaces);
 
-    EdgeDrawing(&g_renderdata, &g_camera, &g_renderbuffer);
+    EdgeDrawing(&g_renderdata, &g_camera, &g_renderbuffer, &g_skycanvas);
 }
 
 void RenderInit()

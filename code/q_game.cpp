@@ -1,5 +1,6 @@
 #include "q_platform.h"
 #include "q_common.cpp"
+#include "q_sky.cpp"
 #include "q_model.cpp"
 #include "q_render.cpp"
 
@@ -11,9 +12,9 @@ void AllocRenderBuffer(RenderBuffer *renderBuffer, GameOffScreenBuffer *offscree
     renderBuffer->width = offscreenBuffer->width;
     renderBuffer->height = offscreenBuffer->height;
     renderBuffer->bytesPerPixel = offscreenBuffer->bytesPerPixel;
-    renderBuffer->bytesPerRow = offscreenBuffer->bytesPerRow;
+    renderBuffer->bytes_per_row = offscreenBuffer->bytesPerRow;
 
-    I32 pixel_buffer_size = renderBuffer->bytesPerRow * renderBuffer->height;
+    I32 pixel_buffer_size = renderBuffer->bytes_per_row * renderBuffer->height;
 
     I32 zbuffer_size = renderBuffer->width * sizeof(*renderBuffer->zbuffer) * renderBuffer->height;
     
@@ -62,7 +63,9 @@ extern "C" GAME_INIT(GameInit)
     // x right, y forward, z up
     AngleVectors(g_camera.angles, &g_camera.rotx, &g_camera.roty, &g_camera.rotz);
 
-    Recti screenRect = {0, 0, 320, 240};
+    Recti screenRect = {0, 0, 
+                        memory->offscreenBuffer.width,
+                        memory->offscreenBuffer.height};
     float fovx = 90.0f;
 
     g_renderdata.worldModel = g_worldModel;
@@ -83,7 +86,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     //right.z = 0;
     right = Vec3Normalize(right);
 
-    float move_speed = 5.0f;
+    float move_speed = 7.0f;
 
     for (I32 i = 0; i < game_input->kevt_count; ++i)
     {
@@ -106,8 +109,12 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         }
     }
 
+    const float ROTATE_EPSILON = 1;
+
     float degree = g_camera.angles.z;
-    degree += game_input->mouse.delta_x * 0.05f;
+    float delta = game_input->mouse.delta_x * 0.05f;
+
+    degree += delta;
     if (degree > 360.0f)
     {
         degree = degree - 360.0f;
@@ -117,9 +124,11 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         degree = degree + 360.0f;
     }
     g_camera.angles.z = degree;
-    
+
     degree = g_camera.angles.x;
-    degree -= game_input->mouse.delta_y * 0.05f;
+    delta = game_input->mouse.delta_y * 0.05f;
+
+    degree -= delta;
     if (degree > 85.0f)
     {
         degree = 85.0f;
