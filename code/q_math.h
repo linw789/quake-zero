@@ -41,6 +41,12 @@ inline float SquareRoot(float x)
     return result;
 }
 
+inline float Power(float base, float exponent)
+{
+    float result = powf(base, exponent);
+    return result;
+}
+
 inline float InvSquareRoot(float x)
 {
     float result = 1.0f / SquareRoot(x);

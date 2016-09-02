@@ -1697,7 +1697,7 @@ void DrawSurfaces(ISurface *isurfaces, ISurface *endISurf, U8 *pbuffer,
             {
                 DrawSolidSurfaces(isurf, pbuffer, bytes_per_row);
             }
-            else if (isurf->flags & SURF_DRAW_TURB)
+            else if (isurf->flags & SURF_DRAW_TURB) // water, lava
             {
                 DrawSolidSurfaces(isurf, pbuffer, bytes_per_row);
             }
@@ -1947,6 +1947,24 @@ void RemapColorMap(U8 *palette, U8 *colormap)
 	}
 }
 
+void BuildGammaTable(U8 *gammatable, float gamma)
+{
+    for (I32 i = 0; i < 256; ++i)
+    {
+        float c = Power(i / 255.0f, gamma) * 255.0f;
+        gammatable[i] = (U8)c;
+    }
+}
+
+void GammaCorrect(U8 *new_palette, U8 *old_palette)
+{
+    for (I32 i = 0; i < 256; ++i)
+    {
+        new_palette[i * 3 + 0] = g_gammatable[old_palette[i * 3 + 0]];
+        new_palette[i * 3 + 1] = g_gammatable[old_palette[i * 3 + 1]];
+        new_palette[i * 3 + 2] = g_gammatable[old_palette[i * 3 + 2]];
+    }
+}
 
 RenderBuffer g_renderbuffer;
 RenderData g_renderdata;

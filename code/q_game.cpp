@@ -44,7 +44,14 @@ extern "C" GAME_INIT(GameInit)
     g_renderbuffer.colormap = FileLoadToLowHunk("gfx/colormap.lmp");
     RemapColorMap(g_renderbuffer.colorPalette, g_renderbuffer.colormap);
 
-    g_platformAPI.SysSetPalette(g_renderbuffer.colorPalette);
+    {
+        U8 new_palette[256 * 3];
+        U8 gamma_table[256];
+
+        BuildGammaTable(gamma_table, 1);
+        GammaCorrect(new_palette, g_renderbuffer.colorPalette);
+        g_platformAPI.SysSetPalette(new_palette);
+    }
 
     TextureCreateDefault(g_defaultTexture);
 
