@@ -1631,15 +1631,16 @@ void DrawTurbulentSpan16(ISurface *isurf, TextureGradient tex_grad, float zi_sta
             }
 
             // clamping
-            u = u & ((SINE_SAMPLE_SIZE << 16) - 1);
-            v = v & ((SINE_SAMPLE_SIZE << 16) - 1);
+            // u = u & ((SINE_SAMPLE_SIZE << 16) - 1);
+            // v = v & ((SINE_SAMPLE_SIZE << 16) - 1);
 
             while (count--)
             {
                 I32 turb_u = ((u + sine_table[v >> 16]) >> 16) & 63;
                 I32 turb_v = ((v + sine_table[u >> 16]) >> 16) & 63;
 
-                *pixel++ = *(surfcache + turb_v * cachewidth + turb_u);
+                // *pixel++ = *(surfcache + turb_v * cachewidth + turb_u);
+                *pixel++ = *(surfcache + ((v >> 16) & 63) * cachewidth + ((u >> 16) & 63));
                 u += u_step;
                 v += v_step;
             }
@@ -1820,10 +1821,16 @@ void DrawSurfaces(ISurface *isurfaces, ISurface *endISurf, U8 *pbuffer,
                 Surface *surface = (Surface *)isurf->data;
                 TextureGradient tex_grad = CalcGradients(surface, 0, camera);
 
+#if 0
                 // use original texture as surface cache, no lighting
                 U8 *surfcache = (U8 *)surface->tex_info->texture 
                               + surface->tex_info->texture->offsets[0];
                 I32 surfcache_width = 64;
+#else // use default checker-board texture
+
+                U8 *surfcache = (U8 *)g_defaultTexture + g_defaultTexture->offsets[0];
+                I32 surfcache_width = 64;
+#endif
 
                 DrawTurbulentSpan16(isurf, tex_grad, isurf->zi_start, isurf->zi_stepx,
                                     isurf->zi_stepy, surfcache, surfcache_width, pbuffer, 
@@ -1863,7 +1870,10 @@ void DrawSurfaces(ISurface *isurfaces, ISurface *endISurf, U8 *pbuffer,
             }
         }
 #else
-        Debug_DrawSkyTexture(pbuffer, bytes_per_row, sky);
+        // Debug_DrawSkyTexture(pbuffer, bytes_per_row, sky);
+        U8 *tex_src = (U8 *)g_defaultTexture + g_defaultTexture->offsets[0];
+        Debug_DrawTexture(pbuffer, bytes_per_row, tex_src, 
+                          g_defaultTexture->width, g_defaultTexture->height);
 #endif
     }
 }
@@ -1971,6 +1981,10 @@ void ScanEdge(RenderData *renderdata, RenderBuffer *renderbuffer, SkyCanvas *sky
                  zbuffer_width, renderbuffer->colormap, renderdata, sky, camera);
 }
 
+void WarpScreen()
+{
+
+}
 
 #define NUM_STACK_EDGE 2400
 #define NUM_STACK_SURFACE 800

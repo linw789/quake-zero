@@ -53,7 +53,7 @@ extern "C" GAME_INIT(GameInit)
         g_platformAPI.SysSetPalette(new_palette);
     }
 
-    TextureCreateDefault(g_defaultTexture);
+    g_defaultTexture = TextureCreateDefault();
 
     ModelInit();
 

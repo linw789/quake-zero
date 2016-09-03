@@ -124,30 +124,37 @@ struct ModelHeaderDisk
 
 Texture *g_defaultTexture;
 
-void TextureCreateDefault(Texture *tx)
+Texture *TextureCreateDefault()
 {
     // create a simple checkerboard texture
 
-    int size = sizeof(*tx) + 16 * 16 + 8 * 8 + 4 * 4 + 2 * 2;
+    Texture *tx = NULL;
+    int size = sizeof(*tx) + 64 * 64 + 16 * 16 + 8 * 8 + 4 * 4;
     tx = (Texture *)HunkLowAlloc(size, "defaulttexture");
     StringCopy(tx->name, 16, "default");
 
-    tx->width = 16;
-    tx->height = 16;
+    tx->width = 64;
+    tx->height = 64;
     tx->offsets[0] = sizeof(*tx);
-    tx->offsets[1] = sizeof(*tx) + 16 * 16;
-    tx->offsets[2] = sizeof(*tx) + 16 * 16 + 8 * 8;
-    tx->offsets[3] = sizeof(*tx) + 16 * 16 + 8 * 8 + 4 * 4;
+    tx->offsets[1] = sizeof(*tx) + 64 * 64;
+    tx->offsets[2] = sizeof(*tx) + 64 * 64 + 16 * 16;
+    tx->offsets[3] = sizeof(*tx) + 64 * 64 + 16 * 16 + 8 * 8;
 
+    // 4 mipmaps
     for (int i = 0; i < 4; ++i)
     {
         U8 *dest = (U8 *)tx + tx->offsets[i];
 
-        for (int y = 0; y < (16 >> i); ++y)
+        int height = tx->height >> i;
+        int width = tx->width >> i;
+
+        for (int y = 0; y < height; ++y)
         {
-            for (int x = 0; x < (16 >> i); ++x)
+            for (int x = 0; x < width; ++x)
             {
-                if ((y < (8 >> i)) ^ (x < (8 >> i)))
+                int cy = (y >> (4 - i)) & 0x1;
+                int cx = (x >> (4 - i)) & 0x1;
+                if (cy ^ cx)
                 {
                     *dest = 0;
                 }
@@ -159,6 +166,8 @@ void TextureCreateDefault(Texture *tx)
             }
         }
     }
+
+    return tx;
 }
 
 void 
