@@ -49,7 +49,7 @@ extern "C" GAME_INIT(GameInit)
         U8 gamma_table[256];
 
         BuildGammaTable(gamma_table, 1);
-        GammaCorrect(new_palette, g_renderbuffer.colorPalette);
+        GammaCorrect(gamma_table, new_palette, g_renderbuffer.colorPalette);
         g_platformAPI.SysSetPalette(new_palette);
     }
 
@@ -57,15 +57,15 @@ extern "C" GAME_INIT(GameInit)
 
     ModelInit();
 
-    /*
+#if 0
     g_worldModel = ModelLoadForName("maps/e1m3.bsp");
     g_camera.position = {-735.968750f, -1591.96875f, 110.031250f};
     g_camera.angles = {0, 0.0f, -90.0f};
-    */
-
+#else
     g_worldModel = ModelLoadForName("maps/start.bsp");
     g_camera.position = {544.6f, 290.0f, 50.0f};
     g_camera.angles = {0, 0.0f, -90.0f};
+#endif
 
     // x right, y forward, z up
     AngleVectors(g_camera.angles, &g_camera.rotx, &g_camera.roty, &g_camera.rotz);

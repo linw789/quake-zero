@@ -67,9 +67,9 @@ Win32GetExeFileName(Win32State *state)
 }
 
 INTERNAL_LINKAGE void
-Win32CatString(char *src0, size_t src0Count, 
-          char *src1, size_t src1Count,
-          char *dest, size_t destCount)
+Win32CatString(char *src0, int src0Count, 
+               char *src1, int src1Count,
+               char *dest, int destCount)
 {
     int destIndex = 0;
 
@@ -120,9 +120,9 @@ Win32BuildGameFilePath(Win32State *state, char *filename,
                        char *dest, int destSize)
 {
     Win32CatString(state->exeFilePath, 
-              state->onePastLastExeFilePathSlash - state->exeFilePath,
-              filename, StringLength(filename),
-              dest, destSize);
+                   (unsigned int)(state->onePastLastExeFilePathSlash - state->exeFilePath),
+                   filename, StringLength(filename),
+                   dest, destSize);
 }
 
 INTERNAL_LINKAGE Win32WindowSize 
@@ -594,6 +594,7 @@ WinMain(HINSTANCE instance, HINSTANCE preInstance, LPSTR cmdline, int showCode)
         window_rect.bottom = point.y;
 
         ShowCursor(FALSE);
+        // TODO lw: after switching windows, cursor won't be clipped
         ClipCursor(&window_rect);
         SetCursorPos((window_rect.left + window_rect.right) / 2,
                      (window_rect.top + window_rect.bottom) / 2);
@@ -642,7 +643,8 @@ WinMain(HINSTANCE instance, HINSTANCE preInstance, LPSTR cmdline, int showCode)
             if (sleepMilliseconds)
             {
                 // TODO lw: find a better way to do this
-                Sleep(sleepMilliseconds - 4);
+                // t <= 0 will cause the app to sleep forever
+                Sleep(sleepMilliseconds + 4);
             }
 
             U64 testCounter = Win32GetWallClock();

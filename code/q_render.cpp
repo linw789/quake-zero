@@ -1396,6 +1396,7 @@ void DrawSpan8(ISurface *isurf, TextureGradient tex_grad, float zi_start,
 
         I32 span_pixel_count = span->count;
 
+        // calculate values of the starting pixel
         float uinvz = tex_grad.uinvz_origin 
                     + span->x_start * tex_grad.uinvz_step_x
                     + span->y * tex_grad.uinvz_step_y;
@@ -1450,7 +1451,7 @@ void DrawSpan8(ISurface *isurf, TextureGradient tex_grad, float zi_start,
                 invz += zi_stepx * steps;
                 z = (float)0x10000 / invz;
 
-                // u_next8 doesn't mean next 8 steps
+                // u_next8 doesn't mean next 8 steps, but next count - 1 steps
                 u_next8 = (Fixed16)(uinvz * z) + tex_grad.u_adjust;
                 u_next8 = Clamp(8, tex_grad.u_extent, u_next8);
 
@@ -1526,13 +1527,125 @@ void DrawSkySpan(ISurface *isurf, U8 *pixelbuffer, I32 bytes_per_row, float sky_
 
             while (count--)
             {
-                // ((v >> 16) & 0x7f) * 128 + ((u >> 16) & 0x7f)
+                // width = 128, (width - 1) = 0x7f
+                // ((v >> 16) & 0x7f) * width + ((u >> 16) & 0x7f)
                 *pixel++ = sky_src[((tex_uv.v & 0x007f0000) >> 8) + ((tex_uv.u & 0x007f0000) >> 16)];
                 tex_uv.u += stepu;
                 tex_uv.v += stepv;
             }
 
             tex_uv = tex_uv_next;
+        }
+
+        span = span->next;
+    }
+}
+
+void DrawTurbulentSpan16(ISurface *isurf, TextureGradient tex_grad, float zi_start, 
+                         float zi_stepx, float zi_stepy, U8 *surfcache, I32 cachewidth,
+                         U8 *pixelbuffer, I32 bytes_per_row, I32 *sine_table, I32 framecount)
+{
+    ESpan *span = isurf->spans;
+
+    sine_table = sine_table + (framecount & (SINE_SAMPLE_SIZE - 1));
+
+    // perspective-correct at every 16 pixel
+    float uinvz_step_x16 = tex_grad.uinvz_step_x * 16.0f;
+    float vinvz_step_x16 = tex_grad.vinvz_step_x * 16.0f;
+    float invz_step_x16 = zi_stepx * 16.0f;
+
+    while (span)
+    {
+
+        U8 *pixel = pixelbuffer + span->y * bytes_per_row + span->x_start;
+
+        I32 span_pixel_count = span->count;
+
+        // calculate values of the starting pixel
+        float uinvz = tex_grad.uinvz_origin 
+                    + span->x_start * tex_grad.uinvz_step_x
+                    + span->y * tex_grad.uinvz_step_y;
+
+        float vinvz = tex_grad.vinvz_origin
+                    + span->x_start * tex_grad.vinvz_step_x
+                    + span->y * tex_grad.vinvz_step_y;
+
+        float invz = zi_start + span->x_start * zi_stepx + span->y * zi_stepy;
+
+        float z = (float)0x10000 / invz; // prescale to 16.16 fixed-point
+
+        Fixed16 u = (Fixed16)(uinvz * z) + tex_grad.u_adjust;
+        u = Clamp(0, tex_grad.u_extent, u);
+        Fixed16 v = (Fixed16)(vinvz * z) + tex_grad.v_adjust;
+        v = Clamp(0, tex_grad.v_extent, v);
+
+        Fixed16 u_step = 0, v_step = 0;
+        Fixed16 u_next16 = 0, v_next16 = 0;
+
+        while (span_pixel_count)
+        {
+            I32 count = 16;
+            if (span_pixel_count < 16)
+            {
+                count = span_pixel_count;
+            }
+            span_pixel_count -= count;
+
+            // calculate stepping variables at multiples of 8
+            if (count == 16)
+            {
+                uinvz += uinvz_step_x16;
+                vinvz += vinvz_step_x16;
+                invz += invz_step_x16;
+                z = (float)0x10000 / invz; // prescale to 16.16 fixed-point
+
+                u_next16 = (Fixed16)(uinvz * z) + tex_grad.u_adjust;
+                u_next16 = Clamp(16, tex_grad.u_extent, u_next16);
+
+                v_next16 = (Fixed16)(vinvz * z) + tex_grad.v_adjust;
+                v_next16 = Clamp(16, tex_grad.v_extent, v_next16);
+
+                u_step = (u_next16 - u) >> 4;
+                v_step = (v_next16 - v) >> 4;
+            }
+            else
+            {
+                I32 steps = (count - 1);
+                uinvz += tex_grad.uinvz_step_x * steps;
+                vinvz += tex_grad.vinvz_step_x * steps;
+                invz += zi_stepx * steps;
+                z = (float)0x10000 / invz;
+
+                // u_next8 doesn't mean next 16 steps
+                u_next16 = (Fixed16)(uinvz * z) + tex_grad.u_adjust;
+                u_next16 = Clamp(16, tex_grad.u_extent, u_next16);
+
+                v_next16 = (Fixed16)(vinvz * z) + tex_grad.v_adjust;
+                v_next16 = Clamp(16, tex_grad.v_extent, v_next16);
+
+                if (count > 1)
+                {
+                    u_step = (u_next16 - u) / steps;
+                    v_step = (v_next16 - v) / steps;
+                }
+            }
+
+            // clamping
+            u = u & ((SINE_SAMPLE_SIZE << 16) - 1);
+            v = v & ((SINE_SAMPLE_SIZE << 16) - 1);
+
+            while (count--)
+            {
+                I32 turb_u = ((u + sine_table[v >> 16]) >> 16) & 63;
+                I32 turb_v = ((v + sine_table[u >> 16]) >> 16) & 63;
+
+                *pixel++ = *(surfcache + turb_v * cachewidth + turb_u);
+                u += u_step;
+                v += v_step;
+            }
+
+            u = u_next16;
+            v = v_next16;
         }
 
         span = span->next;
@@ -1699,7 +1812,25 @@ void DrawSurfaces(ISurface *isurfaces, ISurface *endISurf, U8 *pbuffer,
             }
             else if (isurf->flags & SURF_DRAW_TURB) // water, lava
             {
-                DrawSolidSurfaces(isurf, pbuffer, bytes_per_row);
+                if (isurf->in_submodel)
+                {
+
+                }
+
+                Surface *surface = (Surface *)isurf->data;
+                TextureGradient tex_grad = CalcGradients(surface, 0, camera);
+
+                // use original texture as surface cache, no lighting
+                U8 *surfcache = (U8 *)surface->tex_info->texture 
+                              + surface->tex_info->texture->offsets[0];
+                I32 surfcache_width = 64;
+
+                DrawTurbulentSpan16(isurf, tex_grad, isurf->zi_start, isurf->zi_stepx,
+                                    isurf->zi_stepy, surfcache, surfcache_width, pbuffer, 
+                                    bytes_per_row, renderdata->sine_table, renderdata->framecount);
+
+                DrawZBuffer(isurf->zi_stepx, isurf->zi_stepy, isurf->zi_start, 
+                            isurf->spans, zbuffer, zbuffer_width);
             }
             else
             {
@@ -1840,6 +1971,7 @@ void ScanEdge(RenderData *renderdata, RenderBuffer *renderbuffer, SkyCanvas *sky
                  zbuffer_width, renderbuffer->colormap, renderdata, sky, camera);
 }
 
+
 #define NUM_STACK_EDGE 2400
 #define NUM_STACK_SURFACE 800
 
@@ -1956,13 +2088,13 @@ void BuildGammaTable(U8 *gammatable, float gamma)
     }
 }
 
-void GammaCorrect(U8 *new_palette, U8 *old_palette)
+void GammaCorrect(U8 *gamma_table, U8 *new_palette, U8 *old_palette)
 {
     for (I32 i = 0; i < 256; ++i)
     {
-        new_palette[i * 3 + 0] = g_gammatable[old_palette[i * 3 + 0]];
-        new_palette[i * 3 + 1] = g_gammatable[old_palette[i * 3 + 1]];
-        new_palette[i * 3 + 2] = g_gammatable[old_palette[i * 3 + 2]];
+        new_palette[i * 3 + 0] = gamma_table[old_palette[i * 3 + 0]];
+        new_palette[i * 3 + 1] = gamma_table[old_palette[i * 3 + 1]];
+        new_palette[i * 3 + 2] = gamma_table[old_palette[i * 3 + 2]];
     }
 }
 
@@ -1978,6 +2110,8 @@ void RenderView(float dt)
                g_renderdata.framecount, g_renderdata.worldModel->surfaces);
 
     EdgeDrawing(&g_renderdata, &g_camera, &g_renderbuffer, &g_skycanvas);
+
+    // screen warp
 }
 
 void RenderInit()
@@ -1985,4 +2119,7 @@ void RenderInit()
     CvarSet("drawflat", 0);
     CvarSet("mipscale", 1);
     CvarSet("mipmin", 0);
+
+    BuildSineTable(g_renderdata.sine_table, SINE_TABLE_SIZE, SINE_SAMPLE_SIZE, 
+                   1.0f, 8.0f * 0x10000);
 }

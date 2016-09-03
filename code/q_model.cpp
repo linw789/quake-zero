@@ -33,7 +33,7 @@ struct PlaneDisk
 struct MipTexLump
 {
     int numMipTex;
-    int dataOffsets[1]; // [numMipTex], serve as starting pointer
+    U32 dataOffsets[1]; // [numMipTex], serve as starting pointer
 };
 
 struct TextureInfoDisk
@@ -526,8 +526,9 @@ ModelLoadFaces(Model *model, U8 *base, Lump lump)
             surface->flags |= SURF_DRAW_TURB | SURF_DRAW_TILED;
             for (I32 j = 0; j < 2; ++j)
             {
-                surface->uv_min[j] = 16384;
-                surface->uv_extents[j] = -8192;
+                // TODO wl: ?
+                surface->uv_min[j] = -8192;
+                surface->uv_extents[j] = 16384;
             }
         }
     }

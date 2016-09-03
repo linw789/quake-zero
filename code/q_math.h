@@ -71,9 +71,20 @@ inline float Tangent(float x)
     return result;
 }
 
-/*
-    Linear Algebra
-*/
+void BuildSineTable(I32 *sine_table, I32 table_size, I32 sample_size,
+                    float offset_y, float amplifier)
+{
+    for (I32 i = 0; i < table_size; ++i)
+    {
+        float sample_step = 2.0f * PI32 * i / sample_size;
+        sine_table[i] = (I32)(amplifier * (Sine(sample_step) + offset_y));
+    }
+}
+
+//======================================================
+//               Linear Algebra                        
+//======================================================
+
 struct Vec2f
 {
     float & operator[](int index)

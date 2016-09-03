@@ -111,9 +111,9 @@ int StringCompare(const char *lhs, const char *rhs)
     }
 }
 
-void CatString(char *src0, size_t src0Count, 
-               char *src1, size_t src1Count,
-               char *dest, size_t destCount)
+void CatString(char *src0, int src0Count, 
+               char *src1, int src1Count,
+               char *dest, int destCount)
 {
     int destIndex = 0;
 

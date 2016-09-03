@@ -135,6 +135,9 @@ struct ISurface
 #define MAX_PIXEL_HEIGHT 1024
 #define MIP_NUM 4
 
+#define SINE_SAMPLE_SIZE 128
+#define SINE_TABLE_SIZE (1280 + SINE_SAMPLE_SIZE)
+
 // imtermediate data for drawing
 struct RenderData
 {
@@ -166,4 +169,6 @@ struct RenderData
 
     float scaled_mip[MIP_NUM - 1];
     I32 mip_min;
+
+    I32 sine_table[SINE_TABLE_SIZE];
 };
