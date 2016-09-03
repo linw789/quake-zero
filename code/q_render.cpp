@@ -1631,16 +1631,19 @@ void DrawTurbulentSpan16(ISurface *isurf, TextureGradient tex_grad, float zi_sta
             }
 
             // clamping
-            // u = u & ((SINE_SAMPLE_SIZE << 16) - 1);
-            // v = v & ((SINE_SAMPLE_SIZE << 16) - 1);
+            u = u & ((SINE_SAMPLE_SIZE << 16) - 1);
+            v = v & ((SINE_SAMPLE_SIZE << 16) - 1);
 
             while (count--)
             {
-                I32 turb_u = ((u + sine_table[v >> 16]) >> 16) & 63;
-                I32 turb_v = ((v + sine_table[u >> 16]) >> 16) & 63;
+                I32 sine_scale = 8;
+                I32 sine_u = sine_table[v >> 16] * sine_scale;
+                I32 sine_v = sine_table[u >> 16] * sine_scale;
+                I32 turb_u = ((u + sine_u) >> 16) & 63;
+                I32 turb_v = ((v + sine_v) >> 16) & 63;
 
-                // *pixel++ = *(surfcache + turb_v * cachewidth + turb_u);
-                *pixel++ = *(surfcache + ((v >> 16) & 63) * cachewidth + ((u >> 16) & 63));
+                *pixel++ = *(surfcache + turb_v * cachewidth + turb_u);
+                // *pixel++ = *(surfcache + ((v >> 16) & 63) * cachewidth + ((u >> 16) & 63));
                 u += u_step;
                 v += v_step;
             }
@@ -1704,6 +1707,22 @@ void Debug_DrawTexture(U8 *pixelbuffer, I32 bytes_per_row, U8 *tex_src, I32 tex_
             *pixel_x++ = *texel++;
         }
         pixel_y += bytes_per_row;
+    }
+}
+
+void Debug_DrawTurbTexture(U8 *pixelbuffer, I32 bytes_per_row, U8 *tex_src, I32 tex_width, 
+                           I32 tex_height, I32 *sine_table, I32 framecount)
+{
+    sine_table = sine_table + (framecount & (SINE_SAMPLE_SIZE - 1));
+
+    for (I32 y = 0; y < tex_height; ++y)
+    {
+        for (I32 x = 0; x < tex_width; ++x)
+        {
+            I32 cy = (y + (sine_table[x & (SINE_SAMPLE_SIZE - 1)] >> 16)) & 63;
+            I32 cx = (x + (sine_table[y & (SINE_SAMPLE_SIZE - 1)] >> 16)) & 63;
+            pixelbuffer[y * bytes_per_row + x] = tex_src[cy * tex_width + cx];
+        }
     }
 }
 
@@ -1821,7 +1840,7 @@ void DrawSurfaces(ISurface *isurfaces, ISurface *endISurf, U8 *pbuffer,
                 Surface *surface = (Surface *)isurf->data;
                 TextureGradient tex_grad = CalcGradients(surface, 0, camera);
 
-#if 0
+#if 1
                 // use original texture as surface cache, no lighting
                 U8 *surfcache = (U8 *)surface->tex_info->texture 
                               + surface->tex_info->texture->offsets[0];
@@ -1871,9 +1890,16 @@ void DrawSurfaces(ISurface *isurfaces, ISurface *endISurf, U8 *pbuffer,
         }
 #else
         // Debug_DrawSkyTexture(pbuffer, bytes_per_row, sky);
+
         U8 *tex_src = (U8 *)g_defaultTexture + g_defaultTexture->offsets[0];
+        /*
         Debug_DrawTexture(pbuffer, bytes_per_row, tex_src, 
                           g_defaultTexture->width, g_defaultTexture->height);
+        */
+
+        Debug_DrawTurbTexture(pbuffer, bytes_per_row, tex_src, 
+                              g_defaultTexture->width, g_defaultTexture->height,
+                              renderdata->sine_table, renderdata->framecount);
 #endif
     }
 }
@@ -1981,9 +2007,44 @@ void ScanEdge(RenderData *renderdata, RenderBuffer *renderbuffer, SkyCanvas *sky
                  zbuffer_width, renderbuffer->colormap, renderdata, sky, camera);
 }
 
-void WarpScreen()
+// take the entire screen as a texture and then do the same as water turbulent 
+// drawing
+void WarpScreen(U8 *pixelbuffer, I32 bytes_per_row, I32 bufferwidth, I32 bufferheight,
+                I32 *sine_table, I32 framecount)
 {
+    const I32 MAX_RENDER_BUFFER_WIDTH = 640;
+    const I32 MAX_RENDER_BUFFER_HEIGHT = 480;
 
+    U8 tempbuffer[MAX_RENDER_BUFFER_HEIGHT * MAX_RENDER_BUFFER_WIDTH];
+
+    sine_table = sine_table + ((I32)(framecount * 1.5f)& (SINE_SAMPLE_SIZE - 1));
+    I32 sine_scale_y = 4;
+    I32 sine_scale_x = 4;
+
+    float stretch_rate_width = bufferwidth / (bufferwidth + sine_scale_x * 2.0f);
+    float stretch_rate_height = bufferheight / (bufferheight + sine_scale_y * 2.0f);
+
+    for (I32 y = 0; y < bufferheight; ++y)
+    {
+        for (I32 x = 0; x < bufferwidth; ++x)
+        {
+            I32 sine_y = (sine_table[x & (SINE_SAMPLE_SIZE - 1)] * sine_scale_y) >> 16;
+            I32 sine_x = (sine_table[y & (SINE_SAMPLE_SIZE - 1)] * sine_scale_x) >> 16;
+            float cy = (y + sine_y) * stretch_rate_height;
+            float cx = (x + sine_x) * stretch_rate_width;
+
+            tempbuffer[y * MAX_RENDER_BUFFER_WIDTH + x] = pixelbuffer[(I32)cy * bytes_per_row + (I32)cx];
+        }
+    }
+
+    U8 *dest = pixelbuffer;
+    U8 *src = tempbuffer;
+    for (I32 y = 0; y < bufferheight; ++y)
+    {
+        MemCpy(dest, src, bufferwidth);
+        dest += bytes_per_row;
+        src += MAX_RENDER_BUFFER_WIDTH;
+    }
 }
 
 #define NUM_STACK_EDGE 2400
@@ -2050,6 +2111,8 @@ void SetupFrame(RenderData *renderdata, Camera *camera)
 
     renderdata->oldViewLeaf = renderdata->currentViewLeaf;
     renderdata->currentViewLeaf = ModelFindViewLeaf(camera->position, renderdata->worldModel);
+
+    renderdata->in_water = (renderdata->currentViewLeaf->contents <= CONTENTS_WATER);
 
     TransformFrustum(camera);
     SetupFrustumIndices(camera);
@@ -2125,7 +2188,15 @@ void RenderView(float dt)
 
     EdgeDrawing(&g_renderdata, &g_camera, &g_renderbuffer, &g_skycanvas);
 
-    // screen warp
+    U8 *pbuffer = g_renderbuffer.backbuffer 
+                + g_camera.screen_rect.y * g_renderbuffer.bytes_per_row 
+                + g_camera.screen_rect.x;
+
+    if (g_renderdata.in_water)
+    {
+        WarpScreen(pbuffer, g_renderbuffer.bytes_per_row, g_renderbuffer.width, 
+                   g_renderbuffer.height, g_renderdata.sine_table, g_renderdata.framecount);
+    }
 }
 
 void RenderInit()
@@ -2135,5 +2206,5 @@ void RenderInit()
     CvarSet("mipmin", 0);
 
     BuildSineTable(g_renderdata.sine_table, SINE_TABLE_SIZE, SINE_SAMPLE_SIZE, 
-                   1.0f, 8.0f * 0x10000);
+                   1.0f, 0x10000);
 }

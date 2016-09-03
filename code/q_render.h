@@ -157,6 +157,8 @@ struct RenderData
 
     Model *worldModel;
 
+    B32 in_water;
+
     float nearest_invz; // for surface
 
     I32 currentKey;
