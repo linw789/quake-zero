@@ -6,10 +6,10 @@
 struct LightStyle
 {
     I32 length;
-    // Each char represents the brightness every 0.1 second, 'a' means no light,
-    // 'm' normal bright, 'z' double birght. 
+    // Each char represents the brightness for every 0.1 second, 'a' means no 
+    // light, 'm' normal bright, 'z' double birght. 
     char wave[64];
-    I32 cur_value;
+    Fixed8 cur_value;
 };
 
 struct Light 
@@ -30,5 +30,6 @@ struct LightSystem
     LightStyle styles[MAX_LIGHT_STYLE_NUM];
     Light lights[MAX_LIGHT_NUM];
 
+    // Store light brightness, quake allots 6 bit for different brightness.
     Fixed8 blocklights[18 * 18];
 };

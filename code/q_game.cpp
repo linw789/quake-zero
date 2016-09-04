@@ -4,8 +4,79 @@
 #include "q_model.cpp"
 #include "q_render.cpp"
 
-Model *g_worldModel;
-float g_targetSecondsPerFrame;
+float g_target_dt; // target seconds per frame
+
+struct MapInfo
+{
+    Model *model;
+    Vec3f spawn_pos;
+    LightStyle light_styles[MAX_LIGHT_STYLE_NUM];
+};
+
+MapInfo g_mapinfos[20];
+
+void FillLightStyles(MapInfo *mapinfo, I32 index, const char *wave)
+{
+    I32 len = StringCopy(mapinfo->light_styles[index].wave, 64, wave);
+    mapinfo->light_styles[index].length = len;
+}
+
+void FillMapInfos()
+{
+    MapInfo *mapinfo = g_mapinfos + 0;
+    mapinfo->model = ModelLoadForName("maps/start.bsp");
+    mapinfo->spawn_pos = {544.6f, 290.0f, 50.0f};
+    FillLightStyles(mapinfo, 0, "m");
+    FillLightStyles(mapinfo, 1, "mmnmmommommnonmmonqnmmo");
+    FillLightStyles(mapinfo, 2, "mmnmmommommnonmmonqnmmo");
+    FillLightStyles(mapinfo, 3, "abcdefghijklmnopqrstuvwxyzyxwvutsrqponmlkjihgfedcba");
+    FillLightStyles(mapinfo, 4, "mmmmmaaaaammmmmaaaaaabcdefgabcdefg");
+    FillLightStyles(mapinfo, 5, "mamamamamama");
+    FillLightStyles(mapinfo, 7, "jklmnopqrstuvwxyzyxwvutsrqponmlkj");
+    FillLightStyles(mapinfo, 8, "nmonqnmomnmomomno");
+    FillLightStyles(mapinfo, 9, "mmmaaaabcdefgmmmmaaaammmaamm");
+    FillLightStyles(mapinfo, 10, "mmmaaammmaaammmabcdefaaaammmmabcdefmmmaaaa");
+    FillLightStyles(mapinfo, 11, "aaaaaaaazzzzzzzz");
+    FillLightStyles(mapinfo, 12, "mmamammmmammamamaaamammma");
+    FillLightStyles(mapinfo, 13, "abcdefghijklmnopqrrqponmlkjihgfedcba");
+    FillLightStyles(mapinfo, 32, "m");
+    FillLightStyles(mapinfo, 33, "a");
+    FillLightStyles(mapinfo, 34, "a");
+    FillLightStyles(mapinfo, 35, "a");
+    FillLightStyles(mapinfo, 36, "a");
+    FillLightStyles(mapinfo, 63, "a");
+
+    mapinfo = g_mapinfos + 1;
+    mapinfo->model = ModelLoadForName("maps/e1m1.bsp");
+    mapinfo->spawn_pos = {472.281250, -352.218750, 110.031250};
+    
+    mapinfo = g_mapinfos + 2;
+    mapinfo->model = ModelLoadForName("maps/e1m3.bsp");
+    mapinfo->spawn_pos = {-735.968750f, -1591.96875f, 110.031250f};
+}
+
+void SetLightStyle(LightStyle dest[MAX_LIGHT_STYLE_NUM], LightStyle src[MAX_LIGHT_STYLE_NUM])
+{
+    for (I32 i = 0; i < MAX_LIGHT_STYLE_NUM; ++i)
+    {
+        if (src[i].length)
+        {
+            dest[i].length = src[i].length;
+            StringCopy(dest[i].wave, 64, src[i].wave);
+        }
+    }
+}
+
+void SetMapInfo(MapInfo *mapinfo)
+{
+    g_renderdata.worldModel = mapinfo->model;
+    g_camera.position = mapinfo->spawn_pos;
+    g_camera.angles = {0, 0.0f, -90.0f};
+
+    SetLightStyle(g_lightsystem.styles, g_mapinfos[0].light_styles);
+
+    ModelInit();
+}
 
 void AllocRenderBuffer(RenderBuffer *renderBuffer, GameOffScreenBuffer *offscreenBuffer)
 {
@@ -55,17 +126,9 @@ extern "C" GAME_INIT(GameInit)
 
     g_defaultTexture = TextureCreateDefault();
 
-    ModelInit();
+    FillMapInfos();
 
-#if 0
-    g_worldModel = ModelLoadForName("maps/e1m3.bsp");
-    g_camera.position = {-735.968750f, -1591.96875f, 110.031250f};
-    g_camera.angles = {0, 0.0f, -90.0f};
-#else
-    g_worldModel = ModelLoadForName("maps/start.bsp");
-    g_camera.position = {544.6f, 290.0f, 50.0f};
-    g_camera.angles = {0, 0.0f, -90.0f};
-#endif
+    SetMapInfo(g_mapinfos + 2);
 
     // x right, y forward, z up
     AngleVectors(g_camera.angles, &g_camera.rotx, &g_camera.roty, &g_camera.rotz);
@@ -75,13 +138,11 @@ extern "C" GAME_INIT(GameInit)
                         memory->offscreenBuffer.height};
     float fovx = 90.0f;
 
-    g_renderdata.worldModel = g_worldModel;
-
     ResetCamera(&g_camera, screenRect, fovx);
 
     RenderInit();
 
-    g_targetSecondsPerFrame = memory->targetSecondsPerFrame;
+    g_target_dt = memory->targetSecondsPerFrame;
 }
 
 extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
@@ -148,5 +209,5 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
     AngleVectors(g_camera.angles, &g_camera.rotx, &g_camera.roty, &g_camera.rotz);
 
-    RenderView(g_targetSecondsPerFrame);
+    RenderView(g_target_dt);
 }

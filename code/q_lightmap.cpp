@@ -254,7 +254,7 @@ void BuildLightMap(LightSurface *lightsurf, LightSystem *lightsystem, I32 framec
     for (I32 i = 0; i < lightsample_size; ++i)
     {
         // blocklights[i] = (U32)ambient_light->val;
-        blocklights[i] = 0 << 8;
+        blocklights[i] = 2 << 8;
     }
     if (lightsamples)
     {
@@ -262,11 +262,13 @@ void BuildLightMap(LightSurface *lightsurf, LightSystem *lightsystem, I32 framec
              lightmap < MAX_LIGHT_MAPS && surface->light_styles[lightmap] != 255;
              ++lightmap)
         {
-            U32 bright_adjust = lightsurf->bright_adjusts[lightmap];
+            Fixed8 bright_adjust = lightsurf->bright_adjusts[lightmap];
+
+            // aggregate all lightmaps's values into blocklights
             for (I32 i = 0; i < lightsample_size; ++i)
             {
-                // blocklights[i] += lightsamples[i] * bright_adjust;
-                blocklights[i] += lightsamples[i] << 8;
+                blocklights[i] += lightsamples[i] * bright_adjust;
+                // blocklights[i] += lightsamples[i] << 8;
             }
             lightsamples += lightsample_size;
         }
@@ -278,8 +280,13 @@ void BuildLightMap(LightSurface *lightsurf, LightSystem *lightsystem, I32 framec
 
     for (I32 i = 0; i < lightsample_size; ++i)
     {
-        // TODO lw: ?
-        I32 t = ((255 << 8) - (I32)blocklights[i]) >> (8 - COLOR_SHADE_BITS);
+        /*
+        The value of blocklight ranges from 0.0 to 255.0, but we only have 6 
+        bits for brightness. We need to scale it by multiplying (2^6 / 2^8).
+        We also need to invert the value because in our colormap 63 is pitch 
+        black and 0 is brightest.
+        */
+        I32 t = ((255 << 8) - blocklights[i]) >> (8 - COLOR_SHADE_BITS);
         if (t < (1 << COLOR_SHADE_BITS))
         {
             t = 1 << COLOR_SHADE_BITS;
@@ -299,11 +306,12 @@ void LightTextureSurface(LightSurface *lightsurf, LightSystem *lightsystem,
     // sample at every 16 texel
     I32 lightsample_width = lightsurf->lightblocks_width;
 
-    // width equals height
+    // width equals height, each lightblock spans over several texels
     I32 lightblocksize_in_texel = 16 >> lightsurf->mip_level;
 
     I32 mip_divshift = 4 - lightsurf->mip_level;
-    // lightblock_num_h = lightsurf->mip_texel_width / lightblocksize_in_texel
+
+    // number of lightblocks
     I32 lightblock_num_h = lightsurf->mip_width_in_texel >> mip_divshift;
     I32 lightblock_num_v = lightsurf->mip_height_in_texel >> mip_divshift;
 
@@ -447,9 +455,12 @@ SurfaceCache *CacheSurface(Surface *surface, I32 miplevel, LightSystem *lightsys
     return surface_cache;
 }
 
-void AnimateLights(LightSystem *lightsystem, double time)
+void AnimateLights(LightSystem *lightsystem, I32 framecount)
 {
-    I32 t = (I32)(time * 10.0);
+    // scale ('a'-'m') to (0-255)
+    const I32 bright_scale = (I32)(255.0f / 12.0f);
+
+    I32 t = (I32)(framecount * 0.7f);
     for (I32 i = 0; i < MAX_LIGHT_STYLE_NUM; ++i)
     {
         LightStyle *style = lightsystem->styles + i;
@@ -457,7 +468,7 @@ void AnimateLights(LightSystem *lightsystem, double time)
         {
             I32 k = t % style->length;
             k = style->wave[k] - 'a';
-            k *= 22; // TODO lw: ?
+            k *= bright_scale;
             style->cur_value = k;
         }
         else

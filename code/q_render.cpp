@@ -1891,15 +1891,17 @@ void DrawSurfaces(ISurface *isurfaces, ISurface *endISurf, U8 *pbuffer,
 #else
         // Debug_DrawSkyTexture(pbuffer, bytes_per_row, sky);
 
-        U8 *tex_src = (U8 *)g_defaultTexture + g_defaultTexture->offsets[0];
+        // U8 *tex_src = (U8 *)g_defaultTexture + g_defaultTexture->offsets[0];
         /*
         Debug_DrawTexture(pbuffer, bytes_per_row, tex_src, 
                           g_defaultTexture->width, g_defaultTexture->height);
         */
-
+        /*
         Debug_DrawTurbTexture(pbuffer, bytes_per_row, tex_src, 
                               g_defaultTexture->width, g_defaultTexture->height,
                               renderdata->sine_table, renderdata->framecount);
+        */
+        Debug_DrawColorMap(pbuffer, bytes_per_row, colormap);
 #endif
     }
 }
@@ -2097,7 +2099,7 @@ void EdgeDrawing(RenderData *renderdata, Camera *camera, RenderBuffer *renderbuf
     ScanEdge(renderdata, renderbuffer, sky, camera);
 }
 
-void SetupFrame(RenderData *renderdata, Camera *camera)
+void SetupFrame(RenderData *renderdata, Camera *camera, float target_dt)
 {
     Cvar *mipscale = CvarGet("mipscale");
     for (I32 i = 0; i < (MIP_NUM - 1); ++i)
@@ -2118,6 +2120,8 @@ void SetupFrame(RenderData *renderdata, Camera *camera)
     SetupFrustumIndices(camera);
 
     UpdateVisibleLeaves(renderdata);
+
+    AnimateLights(&g_lightsystem, renderdata->framecount);
 }
 
 /* 
@@ -2180,7 +2184,7 @@ RenderData g_renderdata;
 
 void RenderView(float dt)
 {
-    SetupFrame(&g_renderdata, &g_camera);
+    SetupFrame(&g_renderdata, &g_camera, dt);
     SkySetupFrame(&g_skycanvas);
 
     PushLights(&g_lightsystem, dt, g_renderdata.worldModel->nodes,
