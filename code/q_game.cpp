@@ -110,7 +110,6 @@ extern "C" GAME_INIT(GameInit)
 
     AllocRenderBuffer(&g_renderbuffer, &memory->offscreenBuffer);
 
-    // TODO lw: gamma correction
     g_renderbuffer.colorPalette = FileLoadToLowHunk("gfx/palette.lmp");
     g_renderbuffer.colormap = FileLoadToLowHunk("gfx/colormap.lmp");
     RemapColorMap(g_renderbuffer.colorPalette, g_renderbuffer.colormap);

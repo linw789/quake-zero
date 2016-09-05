@@ -10,7 +10,6 @@
 struct SkyCanvas
 {
     /* 
-     TODO lw: ?
      newsky and topsky both pack in here, 128 bytes of newsky on the left of 
      each scan, 128 bytes of topsky on the right, because the low-level drawers 
      need 256-byte scan widths

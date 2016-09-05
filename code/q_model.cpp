@@ -328,8 +328,6 @@ ModelLoadTextures(Model *model, U8 *base, Lump lump)
             SkyInit(&g_skycanvas, tx);
         }
     }
-
-    // TODO lw: load animations?
 }
 
 void
@@ -824,7 +822,6 @@ Model *ModelFindForName(char *name)
         }
         if (model->loadStatus == ModelLoadStatus::UNUSED)
         {
-            // TODO lw: find out why the test: model->type != ModelType::Alias
             if (unusedModel == NULL || model->type != ModelType::ALIAS)
             {
                 unusedModel = model;

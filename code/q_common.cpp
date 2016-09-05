@@ -1262,8 +1262,6 @@ PackHeader *FileLoadPack(char *packpath)
     FileSeek(packHandle, packHeaderDisk.directoryOffset);
     FileRead(packHandle, (void *)diskPackFiles, packHeaderDisk.directoryLength);
 
-    // TODO lw: crc the directory
-
     PackFile *packFiles = (PackFile *)HunkLowAlloc(packfileNum * sizeof(PackFile), "packfiles");
 
     for (int i = 0; i < packfileNum; ++i)
@@ -1278,8 +1276,6 @@ PackHeader *FileLoadPack(char *packpath)
     packHeader->handle = packHandle;
     packHeader->numfiles = packfileNum;
     packHeader->files = packFiles;
-
-    // TODO lw: console printf "Added packfile %s (%i files)", packpath, packfileNum
 
     return packHeader;
 }
