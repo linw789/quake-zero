@@ -128,7 +128,7 @@ extern "C" GAME_INIT(GameInit)
 
     FillMapInfos();
 
-    SetMapInfo(g_mapinfos + 2);
+    SetMapInfo(g_mapinfos + 1);
 
     // x right, y forward, z up
     AngleVectors(g_camera.angles, &g_camera.rotx, &g_camera.roty, &g_camera.rotz);

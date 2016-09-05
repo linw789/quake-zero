@@ -334,8 +334,20 @@ Win32ProcessMouseMove(bool has_focus, RECT win_rect, MouseState *mouse)
         mouse->delta_x = mouse_point.x - win_center_x;
         mouse->delta_y = mouse_point.y - win_center_y;
 
+        // TODO lw: this is a hack because somehow calling GetCursorPos 
+        // immediately after SetCursorPos returns a positions that's one pixel
+        // off on either x or y from what's been set.
+        if (mouse->delta_x ==1 || mouse->delta_x == -1)
+        {
+            mouse->delta_x = 0;
+        }
+        if (mouse->delta_y ==1 || mouse->delta_y == -1)
+        {
+            mouse->delta_y = 0;
+        }
+
         SetCursorPos(win_center_x, win_center_y);
-        GetCursorPos(&mouse_point);
+        // GetCursorPos(&mouse_point); // one pixel off
 
         mouse->old_x = mouse_point.x;
         mouse->old_y = mouse_point.y;
