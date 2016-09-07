@@ -227,7 +227,6 @@ Win32DisplayBufferInWindow(HDC deviceContext, Win32ScreenBuffer *screenBuffer, W
             windowSize.width, windowSize.height, BLACKNESS);
 
 #endif
-    // drawing pixel 1-to-1 without stretch
     result = StretchDIBits(deviceContext, 
                            0, 0, window_size.width, window_size.height,
                            0, 0, screenBuffer->width, screenBuffer->height, 
@@ -251,7 +250,6 @@ Win32ResizeDIBSection(Win32ScreenBuffer *screenBuffer,
 
     screenBuffer->bitmapInfo.bmiHeader.biSize = sizeof(screenBuffer->bitmapInfo.bmiHeader);
     screenBuffer->bitmapInfo.bmiHeader.biWidth = screenBuffer->width;
-    screenBuffer->bitmapInfo.bmiHeader.biHeight = screenBuffer->height;
     // Negative height means top-left corner is the origin
     screenBuffer->bitmapInfo.bmiHeader.biHeight = -screenBuffer->height;
     screenBuffer->bitmapInfo.bmiHeader.biPlanes = 1;
@@ -682,5 +680,5 @@ WinMain(HINSTANCE instance, HINSTANCE preInstance, LPSTR cmdline, int showCode)
         Win32DisplayBufferInWindow(privateDC, &g_screenBuffer, windowSize);
     }
 
-   return 0;
+    return 0;
 }

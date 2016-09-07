@@ -1733,7 +1733,7 @@ void Debug_DrawColorMap(U8 *pixelbuffer, I32 bytes_per_row, U8 *colormap)
     for (I32 y = 0; y < 64; ++y)
     {
         U8 *pixel = pixel_y;
-        for (I32 x = 0; x < 255; ++x)
+        for (I32 x = 0; x < 256; ++x)
         {
             *pixel++ = *color++;
         }
