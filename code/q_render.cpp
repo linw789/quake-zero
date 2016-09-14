@@ -1883,6 +1883,7 @@ void DrawSurfaces(ISurface *isurfaces, ISurface *endISurf, U8 *pbuffer,
                 DrawSpan8(isurf, tex_grad, isurf->zi_start, isurf->zi_stepx,
                           isurf->zi_stepy, surfcache->data, surfcache->width, 
                           pbuffer, bytes_per_row);
+                // DrawSolidSurfaces(isurf, pbuffer, bytes_per_row);
 
                 DrawZBuffer(isurf->zi_stepx, isurf->zi_stepy, isurf->zi_start, 
                             isurf->spans, zbuffer, zbuffer_width);

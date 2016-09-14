@@ -624,10 +624,10 @@ WinMain(HINSTANCE instance, HINSTANCE preInstance, LPSTR cmdline, int showCode)
         Win32ProcessMouseMove(g_win32_state.has_focus, g_win32_state.window_size, &g_game_input.mouse);
 
         U64 counter = Win32GetWallClock();
-        float secondsElapsed = Win32GetSecondsElapsed(startCounter, counter, counterFrequency);
 
         gameCode.GameUpdateAndRender(&g_game_input);
 
+        float secondsElapsed = Win32GetSecondsElapsed(startCounter, counter, counterFrequency);
 #ifdef QUAKEREMAKE_INTERNAL
 
         // TODO lw: Game DLL stores many global variables which will be zeroed 
