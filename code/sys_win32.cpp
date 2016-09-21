@@ -648,13 +648,12 @@ WinMain(HINSTANCE instance, HINSTANCE preInstance, LPSTR cmdline, int showCode)
 
         if (secondsElapsed < targetSecondsPerFrame)
         {
-            DWORD sleepMilliseconds = (DWORD)(1000.0f * (targetSecondsPerFrame - secondsElapsed)) - 4;
+            DWORD sleepMilliseconds = (DWORD)(1000.0f * (targetSecondsPerFrame - secondsElapsed));
 
-            // t <= 0 will cause the app to sleep forever
             if (sleepMilliseconds)
             {
                 static char tempbuffer[64];
-                sprintf_s(tempbuffer, 64, "Sleep for %d milliseconds\n", sleepMilliseconds);
+                sprintf_s(tempbuffer, 64, "Sleep for %u milliseconds\n", sleepMilliseconds);
                 OutputDebugStringA(tempbuffer);
 
                 // TODO lw: find a better way to do this
