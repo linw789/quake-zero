@@ -453,7 +453,7 @@ void demo_CacheAlloc()
     printf("Cache Alloc Demo Starts ... \n\n");
     printf("Available cache size: %d bytes\n", demo_EndFreeSizeForCache());
     printf("Allocation size includes the size of cache header which is 64 bytes and will be 16-byte aligned\n");
-    printf("[allocation count | hole | end: size allocated]\n");
+    printf("[allocation count | hole | end: memory size]\n");
     printf("hole and end are free memory blocks\n");
     printf("LRU list: most recent used -> least recent used\n");
     printf("type \"alloc\" and a number to allocate cache or \"exit\" to end the demo\n\n");

@@ -389,14 +389,6 @@ EmitIEdgeResult EmitIEdge(Vec3f v0, Vec3f v1, B32 onlyNearInvZ, U32 *iedge_cache
     else
     {
         Vec3f view_vert0 = TransformPointToView(camera, v0);
-        for (I32 i = 0; i < 4; ++i)
-        {
-            float d0 = Vec3Dot(view_vert0, g_camera.frustumPlanes[i].normal) - g_camera.frustumPlanes[i].distance;
-            if (d0 < -0.01f)
-            {
-                d0 = 1;
-            }
-        }
 
         if (view_vert0.z < camera->near_z)
         {
@@ -446,7 +438,8 @@ EmitIEdgeResult EmitIEdge(Vec3f v0, Vec3f v1, B32 onlyNearInvZ, U32 *iedge_cache
     screen_x1 = Clamp(camera->screen_clamp_min.x, camera->screen_clamp_max.x, screen_x1);
     screen_y1 = Clamp(camera->screen_clamp_min.y, camera->screen_clamp_max.y, screen_y1);
 
-    // TODO lw: explain why ceiling?
+    // screen_clamp is 0.5f bigger in each of the four sides, so we ceil to move
+    // screen_y1 to 0, if it's smaller than 0.
     ceil_screen_y1 = (I32)ceilf(screen_y1);
 
     // find minimum z value
@@ -590,6 +583,7 @@ void RenderFace(Surface *surface, RenderData *renderdata, Camera *camera,
     {
         return ;
     }
+
     // no more edge. a face has a least 4 edges?
     if ((renderdata->currentIEdge + surface->numEdge + 4) >= renderdata->endIEdge)
     {
@@ -971,6 +965,7 @@ void InsertNewIEdges(IEdge *edges_to_add, IEdge *edge_list)
             }
             edge_list = edge_list->next;
         } 
+
         next_edge = edges_to_add->next;
 
         // insert 'edges_to_add' intween 'edgelist->prev' and 'edgelist'
@@ -1928,7 +1923,7 @@ void ScanEdge(RenderData *renderdata, RenderBuffer *renderbuffer, SkyCanvas *sky
     I32 screenEndX = rect.x + rect.width;
 
     iedgeHead.x_start = rect.x << 20;
-    screenStartX = iedgeHead.x_start >> 20; // TODO lw: ???
+    screenStartX = iedgeHead.x_start >> 20; 
     iedgeHead.x_step = 0;
     iedgeHead.prev = NULL;
     iedgeHead.next = &iedgeTail;
@@ -1937,7 +1932,7 @@ void ScanEdge(RenderData *renderdata, RenderBuffer *renderbuffer, SkyCanvas *sky
 
     // NOTE lw: operator '+' precedes operator '<<'
     iedgeTail.x_start = ((rect.x + rect.width) << 20) + 0xfffff; // TODO lw: why 0xfffff?
-    screenEndX = iedgeTail.x_start >> 20; // TODO lw: ???
+    screenEndX = iedgeTail.x_start >> 20;
     iedgeTail.x_step = 0;
     iedgeTail.prev = &iedgeHead;
     iedgeTail.next = &iedgeAfterTail;
@@ -2056,17 +2051,15 @@ void WarpScreen(U8 *pixelbuffer, I32 bytes_per_row, I32 bufferwidth, I32 bufferh
 void SetupEdgeDrawingFrame(RenderData *renderdata, IEdge *iedgeStack, ISurface *isurfaceStack)
 {
     // start on CACHE_SIZE aligned address
-    renderdata->iedges = (IEdge *)((size_t)(&iedgeStack[0] + CACHE_SIZE - 1) & ~(CACHE_SIZE - 1));
-    renderdata->isurfaces= (ISurface *)((size_t)(&isurfaceStack[0] + CACHE_SIZE -1) & ~(CACHE_SIZE - 1));
-
-    renderdata->endISurface = &(renderdata->isurfaces[NUM_STACK_SURFACE]);
-    
-    // surface[0] is a dummy representing the surface with no edge
-    renderdata->isurfaces--;
-
+    renderdata->iedges = (IEdge *)(((size_t)&iedgeStack[0] + CACHE_SIZE - 1) & ~(CACHE_SIZE - 1));
     renderdata->currentIEdge = renderdata->iedges;
     renderdata->endIEdge = &(renderdata->iedges[NUM_STACK_EDGE]);
 
+
+    renderdata->isurfaces= (ISurface *)(((size_t)&isurfaceStack[0] + CACHE_SIZE -1) & ~(CACHE_SIZE - 1));
+    renderdata->endISurface = &(renderdata->isurfaces[NUM_STACK_SURFACE]);
+    // surface[0] is a dummy representing the surface with no edge
+    renderdata->isurfaces--;
     // surface[0] is a dummy, surface[1] is background
     renderdata->currentISurface = &(renderdata->isurfaces[2]);
     renderdata->isurfaces[1].spans = NULL;
@@ -2087,6 +2080,11 @@ void EdgeDrawing(RenderData *renderdata, Camera *camera, RenderBuffer *renderbuf
     // TODO lw: why put these data on stack? easy to clear up every frame?
     IEdge iedgeStack[NUM_STACK_EDGE + (CACHE_SIZE - 1)/sizeof(IEdge) + 1];
     ISurface isurfaceStack[NUM_STACK_SURFACE + (CACHE_SIZE - 1)/sizeof(ISurface) + 1];
+
+    // NOTE lw: stack is growing from high address to low address
+    ASSERT((size_t)iedgeStack > (size_t)isurfaceStack);
+    ASSERT((size_t)&iedgeStack[NUM_STACK_SURFACE] > (size_t)isurfaceStack);
+    ASSERT((size_t)&isurfaceStack[NUM_STACK_SURFACE] < (size_t)iedgeStack);
 
     SetupEdgeDrawingFrame(renderdata, iedgeStack, isurfaceStack);
 
