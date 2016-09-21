@@ -2050,7 +2050,7 @@ void WarpScreen(U8 *pixelbuffer, I32 bytes_per_row, I32 bufferwidth, I32 bufferh
 
 void SetupEdgeDrawingFrame(RenderData *renderdata, IEdge *iedgeStack, ISurface *isurfaceStack)
 {
-    // start on CACHE_SIZE aligned address
+    // NOTE lw: always use int or (char *) to do pointer calculation!!!!
     renderdata->iedges = (IEdge *)(((size_t)&iedgeStack[0] + CACHE_SIZE - 1) & ~(CACHE_SIZE - 1));
     renderdata->currentIEdge = renderdata->iedges;
     renderdata->endIEdge = &(renderdata->iedges[NUM_STACK_EDGE]);
