@@ -1,0 +1,281 @@
+                          **Memory Management**
+
+
+(#) Memory Management
+
+Quake's memory scheme is to allocate up front all the memory it potentially
+needs for running the game in a continuous memory block, within which all the
+game data are managed by three different allocators, namely, Hunk Allocator,
+Zone Allocator and Cache Allocator. Each allocator serves a dfferent purpose and
+takes care of certain types of data. 
+
+(##) Hunk Allocator
+
+Hunk is the main allocator that manages the entire memory block given to Quake.
+As a double-ended [stack][wikipedia_stack] allocator, hunk can grow either from
+the lowest memory address up to high memory address or from the highest memory
+address down to low memory address, as long as they don't collide. The
+volatility of data determines where they will be allocated.
+
+*********************************************************************************
+*                             whole memory for game                             *
+*       .-----------------------------+-----------------------------------.     *
+*      |                                                                   |    *
+*      .----+---+----+-----------------------+---------+-------+-----------.    *
+*      |zone|bsp|hunk|-----> free memory <---|temporary|zbuffer|videobuffer|    *   
+*      '----+---+----+-----------------------+---------+-------+-----------'    *
+*      ^                                                                   ^    *
+*      |                                                                   |    *
+*    lowest memory address                              highest memory address  *
+*********************************************************************************
+[Figure : Hunk Allocator]
+
+The low hunks are primarily used to store static data that don't change in a
+level or even during the entire game session, like BSP which includes vertices,
+surfaces, textures and ec cetera. In Quake the first hunk allocated at low hunk
+memory is used as a memory pool for Zone Allocator (discussed in the next
+section). Contrary to what's showed in the above diagram the data in low hunks
+are much larger than that in high hunks.
+
+A drawback of stack based allocator is that items can only be popped out
+(deleted) in the reverse order they are pushed onto the stack, which is known as
+FILO for First In Last Out. That means zone hunk cannot be popped until bsp hunk
+is popped because zone hunk are pushed onto the stack before bsp hunk. Although,
+the data in each item can still be modified, the size cannot change without
+popping the item pushed after it. Quake chooses to allocate video buffer, z
+buffer together in high hunks because their sizes can change at any time during
+the game which would disturb the static data pushed after them if they were in
+low hunks. And the fact that their sizes should always change at the same time
+counters the drawback mentioned before.
+
+Another use for high hunks is to allocate temporary data. A major application is
+when loading BSP from the PAK file at which time data are loaded into the
+temporary hunk and transformed and moved to low hunks. Unliked normal high
+hunks, there is only one temporary hunk and it's always on the top of the high
+hunk stack.
+
+Each hunk comes with a header in front of the actual data. And it contains a
+char array of name, an integer of size as well as an integer for memory
+corruption detection.
+
+~~~~~~~~~~~~
+struct
+{
+    int sentinel; /* this value is always 0x1df001ed */
+    int size; /* hunk size including the header itself */
+    char name[8];
+};
+~~~~~~~~~~~~
+
+The value of the first four bytes of each hunk will always be 0x1df001ed
+(read "id fooled"). If it's not then anything comes after it might no longer be
+valid. The size of every hunk is 16 bytes aligned for more efficient memory
+access. 
+
+
+(##) Zone Allocator
+
+Zone Allocator manages, within the first low hunk, small, dynamic memory
+allocations. In contrast to the stack based allocator it is implemented as a
+[doubly linked list][wikipedia_doubly_linked_lsst] which facilitates easier
+deletion and insertion. 
+
+Each node in the linked list is a memory block that is either occupied or free.
+Initially Zone Allocator uses its entire provisioned memory pool as one free
+memory block and inserts it as the first node into the linked list. Later for
+each allocation, the Zone Allocator linearly searches through the linked list
+and find a free memory node whose size is larger than requested then breaks it
+into two memory nodes one with requested size and the rest as free then relink
+the two. 
+
+*********************************************************************************
+* N: node, O: occupied, F: free                                                 *
+*                                  before insertion                             *
+* .------.    .-------------------------.    .-----------.    .---------------. *
+* | N1(O)|<-->|           N2(F)         |<-->|   N3(O)   |<-->|       N4(F)   | *   
+* '------'    '-------------------------'    '-----------'    '---------------' *
+*                                  after insertion                              *
+* .------.    .-------------.    .------.    .-----------.    .---------------. *
+* | N1(O)|<-->|     N5(O)   |<-->| N6(F)|<-->|   N3(O)   |<-->|       N4(F)   | *   
+* '------'    '-------------'    '------'    '-----------'    '---------------' *
+*********************************************************************************
+[Figure : Zone Allocator Insertion]
+
+After deleting a node from the linked list, the allocator checks nodes on
+both sides of the deleted one and merge them into one free node if they are
+both free. This guarantees that there will never be two consecutive free
+memory nodes in the linked list, hence less
+[fragmentation][stackoverflow_fragmentation].
+
+*********************************************************************************
+* N: node, O: occupied, F: free                                                 *
+*                                  before deletion                              *
+* .-----.    .--------------.    .-------.    .----------.    .---------------. *
+* |N1(O)|<-->|     N2(F)    |<-->| N3(O) |<-->|   N4(F)  |<-->|       N5(O)   | *   
+* '-----'    '--------------'    '-------'    '----------'    '---------------' *
+*                               after deletion of N3                            *
+* .-----.    .-------------------------------------------.    .---------------. *
+* |N1(O)|<-->|                   N6(F)                   |<-->|       N5(O)   | *   
+* '-----'    '-------------------------------------------'    '---------------' *
+*********************************************************************************
+[Figure : Zone Allocator Deletion]
+
+An important implementation detail here is that Quake implements the doubly
+linked list as circular list with a dummy node designated as both the head and
+the tail.  The dummy node links the first real node as its next node and the
+last real node links the dummy node as its next one. At the cost of small extra
+space of a dummy node, the circular list eliminates branches in inertion and
+deletion operations, making them both simpler and faster. All doubly linked
+lists are circular lists in Quake.
+
+~~~~~~~~~~~~~~~~
+/*
+untested code snippet demonstrating circular linked list
+*/
+
+struct Node
+{
+    Node *prev; /* pointer to the previous node */
+    Node *next; /* pointer to the next node */ 
+    int val;
+};
+
+/*
+insert and delete operations on non-circular doubly linked list
+*/
+
+// the first node in the non-circular linked list, NULL means the list is empty.
+Node *head; 
+
+// insert operation on non-circular doubly linked list
+void InsertAfter(Node *node, Node *node_to_insert) 
+{
+    if (node == NULL)
+    {
+        head = node_to_insert;
+        head->next = NULL;
+        return ;
+    }
+
+    if (node->next != NULL) 
+    {
+        node->next->prev = node_to_insert;
+        node_to_insert->next = node->next;
+        node->next = node_to_insert;
+        node_to_insert->prev = node;
+    } 
+    else 
+    {
+        node->next = node_to_insert;
+        node_to_insert->prev = node;
+        node_to_insert->next = NULL;
+    }
+}
+
+// delete operation on non-circular doubly linked list
+void Delete(Node *node_to_delete)
+{
+    if (node_to_delete == NULL)
+        return ;
+
+    if (node_to_delete->next == NULL)
+    {
+        if (node_to_delete->prev == NULL)
+        {
+            head = NULL;
+        }
+        else
+        {
+            node_to_delete->prev->next = NULL;
+        }
+    }
+    else if (node_to_delete->prev == NULL)
+    {
+        head = node_to_delete->next;
+    }
+    else
+    {
+        node_to_delete->next->prev = node_to_delete->prev;
+        node_to_delete->prev->next = node_to_delete->next;
+    }
+}
+
+/*
+insert and delete operations on circular doubly linked list
+*/
+
+// the dummy node in the circular linked list, when the list is empty both
+// dummy's next and prev point to itself.
+Node *dummy 
+
+// insert operation on circular doubly linked list
+void InsertAfter(Node *node, Node *node_to_insert) 
+{
+    // Here we don't need to worry if the node is the last one in the linked
+    // list. Even if it is, its next node is the dummy node instead of NULL.
+    node->next->prev = node_to_insert;
+    node_to_insert->next = node->next;
+    node->next = node_to_insert;
+    node_to_insert->prev = node;
+}
+
+// delete operation on circular doubly linked list
+void Delete(Node *node_to_delete)
+{
+    node_to_delete->next->prev = node_to_delete->prev;
+    node_to_delete->prev->next = node_to_delete->next;
+}
+~~~~~~~~~~~~~~~~
+
+
+(##) Cache Allocator
+
+Cache Allocator is the most complicated of all three. Its purpose is to save
+data loading time by caching them on memory and also, more importantly,
+circumvents the memory size limit by ejecting the 
+[Least Recently Used][lru_caching] data to make room for new ones. 
+
+Let's take as an example loading monster models in each level. Because many
+levels use the same monster models, it would be less efficient to reload them
+every time entering a different level.  Instead, a monster model could be reused
+if it has already been loaded into a cache that still exists in the memory. Due
+to the limited memory space, however, it is infeasible to load all monster
+models into caches. When memory is full, the Least Recently Used caches, which
+most likely hosting monster models that have been killed for a while, will be
+deleted to accommodate new monster models. 
+
+Cache Allocator operates dinamically in the free memory region between the low
+hunks and the high hunks, meaning that the region could expand or shrink at both
+ends at the needs of Hunk Allocator. For example, if Hunk Allocator needs more
+space at the low stack it can iteratively delete caches closest to the low stack
+until enough room is made.  And if Hunk Allocator pops several items from the
+top of the low stack, Cache Allocator can allocate new data at those free space. 
+
+Cache Allocator is implemented using two circular doubly linked lists, one is to
+link caches and the other is to keep track of the Least Recently Used cache. It
+starts allocation at the top of the low hunk stack and linearly searches upwards
+to find a hole inbetween caches. If failed, the allocator will try the free
+memory betwen the last cache and the top of the high hunk stack. And if that
+memory block is not big enough it then ejects the Least Recently Used cache,
+consequently creating a hole, and starts over the search again.
+
+To better demonstrate the mechanism of Cache Allocator, I created a demo program
+that prints out the two links after every allocation. The following is a
+snapshot of the program after four allocations.
+![Demo of Cache Allocator](cache_alloc_0.png)
+
+
+
+
+
+
+
+
+[wikipedia_stack]: https://en.wikipedia.org/wiki/Stack_(abstract_data_type)
+[wikipedia_doubly_linked_lsst]: https://en.wikipedia.org/wiki/Doubly_linked_list
+[stackoverflow_fragmentation]: http://stackoverflow.com/questions/3770457/what-is-memory-fragmentation
+[lru_caching]: http://mcicpc.cs.atu.edu/archives/2012/mcpc2012/lru/lru.html
+
+
+
+<!-- Markdeep: --><style class="fallback">body{visibility:hidden;white-space:pre;font-family:monospace}</style><script src="markdeep.min.js"></script><script src="https://casual-effects.com/markdeep/latest/markdeep.min.js"></script><script>window.alreadyProcessedMarkdeep||(document.body.style.visibility="visible")</script>
