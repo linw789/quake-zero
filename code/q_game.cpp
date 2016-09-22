@@ -166,7 +166,8 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         {
             g_camera.position -= forward * move_speed;
         }
-        else if (key.key == 'a' && key.is_down)
+
+        if (key.key == 'a' && key.is_down)
         {
             g_camera.position -= right * move_speed;
         }
