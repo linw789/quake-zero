@@ -1,12 +1,14 @@
-Quake Zero is a project out of curiosity about how 3D renderer was "hande made" in early
-days. To fully understand what's actually going on under the hood, I
-built the world renderer for Quake 1. Here is the result.
+Quake Zero is a project out of curiosity about how 3D renderer was "hande made"
+in early days. To fully understand what's actually going on under the hood, I
+built a world renderer for Quake 1. Here is the result.
 
 Thank you to [Casey Muratori](https://handmadehero.org/) and 
 [Philip Buuck](http://philipbuuck.com/handmadequake) whose "handmade" projects 
-inspired me to start my own one. And Michael Abrash's 
-[Graphics Programming Black Book](https://github.com/jagregory/abrash-black-book) 
-is the main reference resources. 
+inspired me to start this project. And James Gregory for putting together the 
+ebook version of Michael Abrash's 
+[Graphics Programming Black Book](https://github.com/jagregory/abrash-black-book)
+which is the main resource for studying Quake 1 rendering code.
+
 
 ## To Build
 
@@ -33,10 +35,11 @@ If you run buil.bat under the "tests" folder, and run tests.exe, you can see,
 after unit tests finish, a demo program illustrating how Quake's Cache Allocator
 works.
 
-## Demo Images
+## Demo 
+
+[Youtube Video](https://youtu.be/Y_GQc0QeKPU)
 
 ![quake example 1](docs/quake_example_00.PNG)
 ![quake example 2](docs/quake_example_01.PNG)
 ![quake example 3](docs/quake_example_02.PNG)
 ![quake example 4](docs/quake_example_03.PNG)
-![quake example 5](docs/quake_example_04.gif)
