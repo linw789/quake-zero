@@ -4,7 +4,7 @@ built a world renderer for Quake 1. Here is the result.
 
 Thank you to [Casey Muratori](https://handmadehero.org/) and 
 [Philip Buuck](http://philipbuuck.com/handmadequake) whose "handmade" projects 
-inspired me to start this project. And James Gregory for putting together the 
+inspired me to start this project, and James Gregory for putting together the 
 ebook version of Michael Abrash's 
 [Graphics Programming Black Book](https://github.com/jagregory/abrash-black-book)
 which is the main resource for studying Quake 1 rendering code.
